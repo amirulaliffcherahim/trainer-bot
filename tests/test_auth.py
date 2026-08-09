@@ -280,3 +280,32 @@ def test_explain_regex() -> None:
     assert EXPLAIN_RE.search("kenapa kena rest?")
     assert EXPLAIN_RE.search("how does the negative split work")
     assert not EXPLAIN_RE.search("easy 5k done, legs tired")
+
+
+def test_is_pure_log_and_date_recall() -> None:
+    from datetime import date
+
+    from bot import handle_date_query, is_pure_log
+
+    assert is_pure_log("easy 5k done, RPE 6")
+    assert is_pure_log("tempo 6km done")
+    assert not is_pure_log("why do I need a taper")  # question
+    assert not is_pure_log("my height is 175")  # profile, not a log
+    assert not is_pure_log("quad feels tight after the run")  # symptom
+
+    conn = init_db(":memory:")
+    from db import save_log
+
+    save_log(
+        conn, date="2026-07-14", user_id=1, user_input="easy 5k",
+        ai_response="ok", session_type="easy_run", distance_km=5.0,
+        rpe=6, completed=1,
+    )
+    today = date(2026, 7, 15)
+    recall = handle_date_query("what did I do yesterday", conn, 1, today)
+    assert recall is not None
+    assert "2026-07-14" in recall
+    assert "easy_run" in recall
+    assert "5 km" in recall
+    assert "Nothing logged" in handle_date_query("what did I do on 2026-07-01", conn, 1, today)
+    assert handle_date_query("easy 5k done", conn, 1, today) is None

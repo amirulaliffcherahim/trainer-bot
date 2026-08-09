@@ -49,7 +49,7 @@ import workouts
 from config import Settings
 from llm_client import AllModelsFailed, LLMClient
 from personas import load_personas
-from synthesize import generate_reply
+from synthesize import generate_reply, polish_reply
 
 log = logging.getLogger(__name__)
 
@@ -728,6 +728,72 @@ def coach_prelude() -> str:
     return random.choice(COACH_PRELUDE)
 
 
+PURE_LOG_MARKERS = re.compile(
+    r"\b(km|rpe|easy|tempo|interval|long run|run done|strength|push-?up|"
+    r"pull-?up|squat|plank|core|leg day|upper|weighed|weight|sleep|reps|sets)\b",
+    re.IGNORECASE,
+)
+
+
+def is_pure_log(text: str) -> bool:
+    """Routine session log ("easy 5k done, RPE 6") → single-call fast path.
+    Questions, symptom reports, and profile updates keep the full pipeline."""
+    if validate.is_knowledge_seeking(text):
+        return False
+    if guardrails.has_symptom_signals(text):
+        return False  # pain/tightness → the full 4-perspective pass
+    return bool(PURE_LOG_MARKERS.search(text))
+
+
+FAST_LOG_SYSTEM_PROMPT = """\
+You are the athlete's coach. They just sent a short training log.
+
+Reply in 1-3 short, casual lines: acknowledge it, and note anything worth
+noting (effort, heat, tightness, pace vs normal). No questions, no
+markdown, no headers, no emoji spam, don't invent numbers, never
+lecture. Just like a coach glancing at the log and answering back.
+"""
+
+
+DATE_QUERY_RE = re.compile(
+    r"^what did i (do|run|log|train)( on| at| yesterday| today)?.*",
+    re.IGNORECASE,
+)
+
+
+def handle_date_query(text: str, conn, user_id: int, today: date) -> str | None:
+    """'what did I do yesterday' / 'what did I run on 2026-07-28' → recall
+    from daily_logs. None when the message isn't a date recall."""
+    if not DATE_QUERY_RE.match(text.strip()):
+        return None
+    # Pull the date expression: the tail after 'do/run/log' if it names one.
+    m = re.search(r"(?:on|at|yesterday|today|\d{4}-\d{2}-\d{2}|\d+ days ago|last \w+)$", text.strip(), re.IGNORECASE)
+    raw = m.group(0) if m else "today"
+    if raw.lower() in ("yesterday", "today"):
+        date_iso = resolve_log_date(raw, today)
+    else:
+        date_iso = resolve_log_date(raw, today)
+    if date_iso is None:
+        return None
+    rows = conn.execute(
+        "SELECT * FROM daily_logs WHERE user_id = ? AND date = ? ORDER BY id",
+        (user_id, date_iso),
+    ).fetchall()
+    if not rows:
+        return f"Nothing logged on {date_iso}."
+    lines = [f"{date_iso}:"]
+    for row in rows:
+        parts = [row["session_type"] or "log"]
+        if row["distance_km"]:
+            parts.append(f"{row['distance_km']:g} km")
+        if row["rpe"]:
+            parts.append(f"RPE {row['rpe']}")
+        if row["weight_kg"]:
+            parts.append(f"{row['weight_kg']:g} kg")
+        lines.append(" · ".join(parts))
+    return "\n".join(lines)
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.bot_data["settings"]
     if not _gate(update, settings):
@@ -760,6 +826,13 @@ async def _process_text(
 
     client: LLMClient = context.bot_data["llm_client"]
 
+    # 1a. Date recall — "what did I do yesterday" answers straight from the
+    # DB, no LLM, and the workout remembers its date.
+    recall = handle_date_query(text, conn, user_id, date.today())
+    if recall is not None:
+        await placeholder.edit_text(recall)
+        return
+
     # 1b. Conversational profile intake — best-effort, silent on failure.
     profile_ack = None
     if PROFILE_KEYWORD_RE.search(text) and re.search(r"\d", text):
@@ -770,6 +843,22 @@ async def _process_text(
             )
         except (extract.ExtractionFailed, AllModelsFailed):
             pass  # profile pass is best-effort
+
+    # 1c. Fast path — routine session logs get one quick coach call instead
+    # of the full 4-persona + editor stack. Date is still recorded by the
+    # background logger.
+    if is_pure_log(text) and not EXPLAIN_RE.search(text):
+        answer = await client.chat_async(
+            [
+                {"role": "system", "content": FAST_LOG_SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            temperature=0.3,
+        )
+        answer = polish_reply(answer)
+        await placeholder.edit_text(merge_ack(answer, profile_ack))
+        asyncio.create_task(_store_log_background(client, conn, user_id, text))
+        return
 
     # 2. Computed facts from real data (code, not AI).
     rows = db.get_recent_history(conn, user_id)

@@ -99,15 +99,10 @@ def _make_env(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_handle_text_routine_log(monkeypatch) -> None:
-    """'easy 5k done' → prelude sent, edited into the answer, logged in the
-    background. Exercises the full handler — no NameError class of bugs."""
+async def test_handle_text_routine_log_fast_path(monkeypatch) -> None:
+    """'easy 5k done' → ONE coach call (fast path), prelude edited, logged
+    in the background with its date."""
     conn, client = _make_env(monkeypatch, None)
-    # persona passes (4) + editor (1); extraction for the background log.
-    client.queue_chat("draft")
-    client.queue_chat("draft")
-    client.queue_chat("draft")
-    client.queue_chat("draft")
     client.queue_chat("Nice easy 5k! Legs feeling fresh.")
     client.queue_json(
         {"rpe": 6, "session_type": "easy_run", "distance_km": 5.0,
@@ -119,8 +114,9 @@ async def test_handle_text_routine_log(monkeypatch) -> None:
     await bot_module.handle_text(update, FakeContext(conn, client))
     await bot_module.wait_user_idle(1)
 
+    assert client.chat_calls == 1  # fast path — not the 5-call stack
     assert len(message.sent) == 1  # prelude
-    assert len(message.edited) == 1  # final answer replaces it
+    assert len(message.edited) == 1
     assert "Legs feeling fresh" in message.edited[0]
 
     await asyncio.sleep(0)  # let the background logging task finish
@@ -130,6 +126,7 @@ async def test_handle_text_routine_log(monkeypatch) -> None:
     assert row["rpe"] == 6
     assert row["distance_km"] == 5.0
     assert row["verified"] == 1  # trust-me: typed distance+time
+    assert row["date"]  # the workout remembers its date
 
 
 @pytest.mark.asyncio

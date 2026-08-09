@@ -195,8 +195,8 @@ async def synthesize(
     return await client.chat_async(
         messages,
         temperature=EDITOR_TEMPERATURE,
-        thinking=True,
-        reasoning_effort="high",
+        thinking=explain,
+        reasoning_effort="high" if explain else None,
     )
 
 
@@ -222,8 +222,6 @@ async def _synthesize_corrective(
     return await client.chat_async(
         messages,
         temperature=EDITOR_TEMPERATURE,
-        thinking=True,
-        reasoning_effort="high",
     )
 
 
