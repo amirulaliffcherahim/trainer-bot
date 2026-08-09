@@ -2,7 +2,13 @@
 
 import pytest
 
-from extract import ExtractionFailed, LogExtraction, extract_log
+from extract import (
+    ExtractionFailed,
+    LogExtraction,
+    ProfileExtraction,
+    extract_log,
+    extract_profile,
+)
 from llm_client import AllModelsFailed, NonRetryableError
 
 
@@ -109,3 +115,54 @@ async def test_infra_errors_propagate() -> None:
     client = FakeLLMClient([AllModelsFailed("down")])
     with pytest.raises(AllModelsFailed):
         await extract_log(client, "run done")
+
+
+# --- conversational profile intake -----------------------------------------
+
+
+PROFILE_JSON = {
+    "height_cm": 175,
+    "weight_kg": 55.4,
+    "age": 28,
+    "vo2_max": None,
+    "max_bpm": 190,
+    "resting_bpm": 55,
+    "target_race": "SELMAR Half Marathon",
+    "target_time_raw": "2:30:00",
+}
+
+
+@pytest.mark.asyncio
+async def test_extract_profile_captures_stated_fields() -> None:
+    client = FakeLLMClient([PROFILE_JSON])
+    profile = await extract_profile(
+        client, "my height is 175, weight 55.4, max hr 190, resting 55, race SELMAR Half Marathon target 2:30:00, vo2 I don't know"
+    )
+    assert profile.height_cm == 175
+    assert profile.weight_kg == 55.4
+    assert profile.max_bpm == 190
+    assert profile.vo2_max is None  # "I don't know" → omitted
+    assert profile.target_race == "SELMAR Half Marathon"
+    assert profile.target_time_raw == "2:30:00"
+    assert profile.any_set
+
+
+@pytest.mark.asyncio
+async def test_extract_profile_question_captures_nothing() -> None:
+    client = FakeLLMClient([{}])
+    profile = await extract_profile(client, "what's my target pace?")
+    assert not profile.any_set
+
+
+@pytest.mark.asyncio
+async def test_extract_profile_corrective_then_valid() -> None:
+    client = FakeLLMClient([{"height_cm": 500}, {"height_cm": 175}])
+    profile = await extract_profile(client, "height 175")
+    assert profile.height_cm == 175
+
+
+@pytest.mark.asyncio
+async def test_extract_profile_double_failure_returns_empty() -> None:
+    client = FakeLLMClient([{"age": 5}, {"weight_kg": 999}])
+    profile = await extract_profile(client, "bad data")
+    assert not profile.any_set  # best-effort: never raises

@@ -312,6 +312,83 @@ def parse_profile_arg(tokens: list[str]) -> dict[str, object]:
     return out
 
 
+PROFILE_KEYWORD_RE = re.compile(
+    r"\b(heights?|weight|kg|cm|vo2|bpm|heart\s*rate|resting|age|target|race|goal)\b",
+    re.IGNORECASE,
+)
+
+EXPLAIN_RE = re.compile(
+    r"\b(explain|why|how does|how come|what'?s the reason|tell me more|elaborate|go deeper|kenapa|macam mana|bagaimana)\b",
+    re.IGNORECASE,
+)
+
+
+def apply_profile_extraction(
+    conn, user_id: int, profile: "extract.ProfileExtraction", today: date
+) -> str | None:
+    """Merge chat-captured profile fields into athlete_profile. Weight also
+    becomes today's daily log entry. Returns the acknowledgment or None."""
+    updates = profile.model_dump(exclude_none=True)
+    target_race = updates.pop("target_race", None)
+    target_time = updates.pop("target_time_raw", None)
+    if not updates and not target_race and not target_time:
+        return None
+
+    if conn.execute(
+        "SELECT 1 FROM athlete_profile WHERE user_id = ?", (user_id,)
+    ).fetchone() is None:
+        conn.execute("INSERT INTO athlete_profile (user_id) VALUES (?)", (user_id,))
+
+    sets: list[str] = []
+    values: list[object] = []
+    for column, value in updates.items():
+        sets.append(f"{column} = ?")
+        values.append(value)
+    if target_race:
+        sets.append("target_race = ?")
+        values.append(target_race)
+    pace_text = None
+    if target_time:
+        _, target_sec = parse_target_arg(f"x {target_time}")
+        pace_sec_km = target_sec / HALF_MARATHON_KM
+        pace_text = f"{int(pace_sec_km // 60)}:{int(pace_sec_km % 60):02d} min/km"
+        sets.append("target_pace = ?")
+        values.append(pace_text)
+    conn.execute(
+        f"UPDATE athlete_profile SET {', '.join(sets)}, updated_at = datetime('now') "
+        "WHERE user_id = ?",
+        [*values, user_id],
+    )
+    if profile.weight_kg is not None:
+        db.save_log(
+            conn,
+            date=today.isoformat(),
+            user_id=user_id,
+            user_input="weight",
+            ai_response="weight logged",
+            weight_kg=profile.weight_kg,
+            completed=0,
+        )
+    conn.commit()
+
+    parts: list[str] = []
+    if profile.height_cm is not None:
+        parts.append(f"height {profile.height_cm:g} cm")
+    if profile.weight_kg is not None:
+        parts.append(f"weight {profile.weight_kg:g} kg")
+    if profile.age is not None:
+        parts.append(f"age {profile.age} y")
+    if profile.vo2_max is not None:
+        parts.append(f"VO2 max {profile.vo2_max:g}")
+    if profile.max_bpm is not None:
+        parts.append(f"max HR {profile.max_bpm} bpm")
+    if profile.resting_bpm is not None:
+        parts.append(f"resting HR {profile.resting_bpm} bpm")
+    if target_race:
+        parts.append(f"target {target_race} @ {pace_text or 'see /target'}")
+    return "📝 Noted: " + ", ".join(parts) if parts else None
+
+
 def profile_snapshot(conn, user_id: int) -> str:
     """One-line profile summary injected into every persona prompt."""
     row = conn.execute("SELECT * FROM athlete_profile WHERE user_id = ?", (user_id,)).fetchone()
@@ -610,6 +687,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     client: LLMClient = context.bot_data["llm_client"]
 
+    # 1b. Conversational profile intake — "my height is 175, vo2 i don't
+    # know" updates the profile without commands. Best-effort: failure is
+    # silent, and the training pipeline always continues. Commands remain
+    # as shortcuts (/profile /target /weight).
+    profile_ack = None
+    if PROFILE_KEYWORD_RE.search(text) and re.search(r"\d", text):
+        try:
+            profile = await extract.extract_profile(client, text)
+            profile_ack = apply_profile_extraction(
+                conn, user_id, profile, date.today()
+            )
+        except (extract.ExtractionFailed, AllModelsFailed):
+            pass  # profile pass is best-effort
+
     # 2. Structured extraction (one corrective re-prompt inside).
     try:
         extracted = await extract.extract_log(client, text)
@@ -641,6 +732,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             user_message=text,
             retrieval_fn=retrieval_fn,
             profile_str=profile_snapshot(conn, user_id),
+            explain=bool(EXPLAIN_RE.search(text)),
         )
     except AllModelsFailed:
         await update.message.reply_text(
@@ -649,6 +741,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     await update.message.reply_text(answer)
+    if profile_ack:
+        await update.message.reply_text(profile_ack)
 
     # 6. Store the log (structured values from extraction; never AI-derived pace).
     # Backdating: the message may say WHEN it happened ("on 2026-07-28",

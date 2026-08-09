@@ -118,6 +118,82 @@ class ExtractionFailed(RuntimeError):
     """Two extraction attempts failed — caller must ask the user directly."""
 
 
+PROFILE_SYSTEM_PROMPT = """\
+You extract athlete profile data from casual chat. The runner talks in
+English or Malaysian English.
+
+Capture ONLY facts the runner states about themselves:
+- height_cm: number (e.g. 175)
+- weight_kg: number (e.g. 55.4)
+- age: integer (e.g. 28)
+- vo2_max: number — ONLY if stated; "I don't know" / n/a → omit
+- max_bpm: max heart rate (e.g. 190)
+- resting_bpm: resting heart rate (e.g. 55)
+- target_race: the race/event name (e.g. "SELMAR Half Marathon")
+- target_time_raw: the goal time as stated, verbatim (e.g. "2:30:00")
+
+Rules:
+- Transcribe, never guess. Omit every field the runner does not state.
+- "weighed 55.4 today" → weight_kg 55.4
+- "my height is 175" → height_cm 175
+- "vo2 I have no idea" → omit vo2_max
+- Questions like "what's my target pace?" capture NOTHING.
+- Respond with JSON ONLY, no prose, no markdown fences.
+"""
+
+_PROFILE_CORRECTIVE = (
+    "Your previous response was invalid. Respond again with valid JSON: "
+    "height_cm 100-250, weight_kg 30-200, age 10-100, vo2_max 20-90, "
+    "max_bpm 80-250, resting_bpm 30-150, target_race string, "
+    "target_time_raw 'H:MM:SS'. Omit anything not stated. JSON ONLY."
+)
+
+
+class ProfileExtraction(BaseModel):
+    height_cm: float | None = Field(default=None, ge=100, le=250)
+    weight_kg: float | None = Field(default=None, ge=30, le=200)
+    age: int | None = Field(default=None, ge=10, le=100)
+    vo2_max: float | None = Field(default=None, ge=20, le=90)
+    max_bpm: int | None = Field(default=None, ge=80, le=250)
+    resting_bpm: int | None = Field(default=None, ge=30, le=150)
+    target_race: str | None = Field(default=None, max_length=120)
+    target_time_raw: str | None = Field(default=None, max_length=20)
+
+    @property
+    def any_set(self) -> bool:
+        return any(v is not None for v in self.model_dump().values())
+
+
+async def _try_profile(
+    client: LLMClient, messages: list[dict[str, str]]
+) -> ProfileExtraction | None:
+    try:
+        raw = await client.chat_json_async(messages, temperature=0.0)
+    except NonRetryableError:
+        return None
+    try:
+        return ProfileExtraction.model_validate(raw)
+    except ValidationError:
+        return None
+
+
+async def extract_profile(client: LLMClient, user_text: str) -> ProfileExtraction:
+    """Conversational profile intake — one corrective re-prompt, then give up
+    quietly (best-effort; the main pipeline continues regardless)."""
+    messages = [
+        {"role": "system", "content": PROFILE_SYSTEM_PROMPT},
+        {"role": "user", "content": user_text},
+    ]
+    parsed = await _try_profile(client, messages)
+    if parsed is not None:
+        return parsed
+    corrective = [*messages, {"role": "user", "content": _PROFILE_CORRECTIVE}]
+    parsed = await _try_profile(client, corrective)
+    if parsed is not None:
+        return parsed
+    return ProfileExtraction()  # empty — caller treats it as a no-op
+
+
 def _system_prompt() -> str:
     return EXTRACTION_SYSTEM_PROMPT.format(session_types=", ".join(sorted(SESSION_TYPES)))
 

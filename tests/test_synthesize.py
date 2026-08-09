@@ -92,7 +92,9 @@ async def test_editor_merges_with_hierarchy_and_citations() -> None:
     drafts = await run_persona_passes(
         client, PERSONAS, facts=FACTS, user_message="hi", retrieval_fn=_retrieval_fn
     )
-    answer = await synthesize(client, drafts, facts_block_str="## Current state\n- x")
+    answer = await synthesize(
+        client, drafts, facts_block_str="## Current state\n- x"
+    )
     assert answer == "final answer"
     editor = client.calls[4]
     system = editor["messages"][0]["content"]
@@ -100,9 +102,36 @@ async def test_editor_merges_with_hierarchy_and_citations() -> None:
     assert "Physiotherapy Trainer" in system  # authority listed first
     assert "surfaced explicitly" in system
     assert "[SOURCE:" in system  # citation preservation instructed
+    assert "knowledgeable mate" in system  # chill tone directive
     user = editor["messages"][1]["content"]
     assert "physio" in user and "runner" in user and "calisthenics" in user and "mobility" in user
     assert "CURRENT STATE" in user
+
+
+@pytest.mark.asyncio
+async def test_explain_mode_adds_deep_dive_directive() -> None:
+    client = FakeLLMClient(["draft"] * 4 + ["final answer"])
+    drafts = await run_persona_passes(
+        client, PERSONAS, facts=FACTS, user_message="why taper?", retrieval_fn=_retrieval_fn
+    )
+    await synthesize(
+        client, drafts, facts_block_str="## Current state\n- x", explain=True
+    )
+    system = client.calls[4]["messages"][0]["content"]
+    assert "EXPLAIN MODE" in system
+    assert "Go DEEP" in system
+
+
+@pytest.mark.asyncio
+async def test_no_explain_mode_by_default() -> None:
+    client = FakeLLMClient(["draft"] * 4 + ["final answer"])
+    drafts = await run_persona_passes(
+        client, PERSONAS, facts=FACTS, user_message="hi", retrieval_fn=_retrieval_fn
+    )
+    await synthesize(client, drafts, facts_block_str="## Current state\n- x")
+    system = client.calls[4]["messages"][0]["content"]
+    assert "EXPLAIN MODE" not in system
+    assert "Depth is served on request" in system
 
 
 @pytest.mark.asyncio

@@ -46,8 +46,7 @@ Conflict hierarchy (highest authority first):
 4. Mobility Trainer — supplementary
 
 Rules:
-- Merge the drafts into ONE coherent, practical reply written directly to
-  the athlete.
+- Merge the drafts into ONE coherent reply written directly to the athlete.
 - When a higher-authority expert contradicts a lower one, the higher
   authority wins — and the conflict MUST be surfaced explicitly in the reply
   (e.g. "Physio rule: rest — skipping today's run is the right call"). Never
@@ -59,7 +58,20 @@ Rules:
 - If every draft reports no knowledge-base match, say you have no data on
   that topic rather than improvising.
 - If a draft is marked [PASS FAILED], ignore it.
+
+Tone — write like a knowledgeable mate:
+- Warm, casual, direct. Short sentences. No corporate filler, no lecturing,
+  no emoji spam. The chill delivery never changes the numbers or the
+  safety rules.
+- Default: keep replies tight — a few lines. Depth is served on request.
 - Output only the final reply, plain text, no preamble.
+"""
+
+EXPLAIN_ADDENDUM = """\
+EXPLAIN MODE — the athlete asked why / how / to elaborate.
+Go DEEP: give the mechanism, the background, the trade-offs, the 'because'
+behind each recommendation. Teach the reasoning, not just the rule. Still
+cite sources and keep the chill tone — deep doesn't mean dense.
 """
 
 
@@ -133,12 +145,15 @@ async def synthesize(
     drafts: dict[str, PersonaDraft],
     *,
     facts_block_str: str,
+    explain: bool = False,
 ) -> str:
-    """One editor pass merging all persona drafts."""
+    """One editor pass merging all persona drafts. explain=True adds the
+    deep-dive directive (user asked why/how)."""
     rendered = _render_drafts(drafts)
+    system_prompt = EDITOR_SYSTEM_PROMPT + (EXPLAIN_ADDENDUM if explain else "")
     user = f"CURRENT STATE (ground truth):\n{facts_block_str}\n\n{rendered}"
     messages = [
-        {"role": "system", "content": EDITOR_SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user},
     ]
     return await client.chat_async(
@@ -184,9 +199,10 @@ async def generate_reply(
     user_message: str,
     retrieval_fn,
     profile_str: str = "",
+    explain: bool = False,
 ) -> tuple[str, dict[str, PersonaDraft]]:
     """Full synthesis pipeline: persona passes → editor → validation, with
-    one corrective editor pass on validation failure."""
+    one corrective editor pass on validation failure. explain=True deep-dives."""
     drafts = await run_persona_passes(
         client,
         personas,
@@ -199,7 +215,9 @@ async def generate_reply(
         raise AllModelsFailed("all persona passes failed — use degraded mode")
 
     facts_str = format_facts_block(facts)
-    answer = await synthesize(client, drafts, facts_block_str=facts_str)
+    answer = await synthesize(
+        client, drafts, facts_block_str=facts_str, explain=explain
+    )
 
     result = validate_reply(answer, facts_block=facts, drafts=drafts)
     if not result.valid:

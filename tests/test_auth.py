@@ -203,3 +203,75 @@ def test_profile_columns_exist_after_migration() -> None:
     }
     for expected in ("age", "vo2_max", "max_bpm", "resting_bpm"):
         assert expected in columns
+
+
+# --- conversational profile apply -------------------------------------------
+
+
+def test_apply_profile_extraction_merges_and_acks() -> None:
+    from datetime import date
+
+    from bot import apply_profile_extraction
+    from extract import ProfileExtraction
+
+    conn = init_db(":memory:")
+    profile = ProfileExtraction(
+        height_cm=175.0, weight_kg=55.4, age=28, vo2_max=None,
+        max_bpm=190, resting_bpm=55,
+        target_race="SELMAR Half Marathon", target_time_raw="2:30:00",
+    )
+    ack = apply_profile_extraction(conn, 1, profile, date(2026, 7, 15))
+    row = conn.execute("SELECT * FROM athlete_profile WHERE user_id = 1").fetchone()
+    assert row["height_cm"] == 175.0
+    assert row["weight_kg"] == 55.4
+    assert row["age"] == 28
+    assert row["vo2_max"] is None
+    assert row["max_bpm"] == 190
+    assert row["resting_bpm"] == 55
+    assert row["target_race"] == "SELMAR Half Marathon"
+    assert row["target_pace"] == "7:06 min/km"  # 9000 s / 21.0975
+    assert "height 175 cm" in ack
+    assert "VO2 max" not in ack
+    # Weight also recorded as today's daily entry.
+    log = conn.execute("SELECT * FROM daily_logs WHERE user_id = 1").fetchone()
+    assert log["weight_kg"] == 55.4
+
+
+def test_apply_profile_extraction_does_not_clobber_unmentioned() -> None:
+    from datetime import date
+
+    from bot import apply_profile_extraction
+    from extract import ProfileExtraction
+
+    conn = init_db(":memory:")
+    conn.execute(
+        "INSERT INTO athlete_profile (user_id, height_cm, weight_kg) VALUES (1, 175, 55.0)"
+    )
+    conn.commit()
+    ack = apply_profile_extraction(conn, 1, ProfileExtraction(age=28), date(2026, 7, 15))
+    row = conn.execute("SELECT * FROM athlete_profile WHERE user_id = 1").fetchone()
+    assert row["height_cm"] == 175.0  # untouched
+    assert row["weight_kg"] == 55.0  # untouched
+    assert row["age"] == 28
+    assert "age 28 y" in ack
+
+
+def test_apply_profile_extraction_empty_is_noop() -> None:
+    from datetime import date
+
+    from bot import apply_profile_extraction
+    from extract import ProfileExtraction
+
+    conn = init_db(":memory:")
+    assert apply_profile_extraction(conn, 1, ProfileExtraction(), date(2026, 7, 15)) is None
+    assert conn.execute("SELECT COUNT(*) AS n FROM athlete_profile").fetchone()["n"] == 0
+
+
+def test_explain_regex() -> None:
+    from bot import EXPLAIN_RE
+
+    assert EXPLAIN_RE.search("why do I need a taper?")
+    assert EXPLAIN_RE.search("explain the 10 percent rule")
+    assert EXPLAIN_RE.search("kenapa kena rest?")
+    assert EXPLAIN_RE.search("how does the negative split work")
+    assert not EXPLAIN_RE.search("easy 5k done, legs tired")
