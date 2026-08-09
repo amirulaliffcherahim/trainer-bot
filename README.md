@@ -157,6 +157,10 @@ Host prerequisites (Debian/Ubuntu): `sudo apt install libgl1 libglib2.0-0`
 installed from `requirements.txt` (includes the `[job-queue]` extra —
 without it the scheduler silently disables notifications).
 
+No venv? The ecosystem config falls back to system `python3` automatically
+— just make sure the dependencies are installed for it (Fedora's pip may
+require `--break-system-packages` or a user install).
+
 ```bash
 pip install pm2  # or npm i -g pm2
 pm2 start ecosystem.config.js
