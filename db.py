@@ -29,13 +29,17 @@ EXPECTED_TABLES = (
 
 
 def get_conn(db_path: str | Path) -> sqlite3.Connection:
-    """Open a connection with row access and foreign keys enabled."""
+    """Open a connection with row access and foreign keys enabled.
+
+    check_same_thread=False: PTB handlers, asyncio.to_thread work (OCR,
+    synthesis) and background jobs share this connection across threads.
+    """
     if db_path == ":memory:":
-        conn = sqlite3.connect(":memory:")
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
     else:
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path)
+        conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     # WAL + busy timeout: Telegram handlers and background jobs (recap push,

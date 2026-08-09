@@ -150,6 +150,11 @@ tests/             pytest suite (hermetic, no network)
 
 ### PM2 (no Docker)
 
+Host prerequisites (Debian/Ubuntu): `sudo apt install libgl1 libglib2.0-0`
+(required by the local OCR engine), Python 3.11+, and the project venv
+installed from `requirements.txt` (includes the `[job-queue]` extra —
+without it the scheduler silently disables notifications).
+
 ```bash
 pip install pm2  # or npm i -g pm2
 pm2 start ecosystem.config.js
@@ -158,6 +163,10 @@ pm2 logs trainer-bot
 # daily backup (cron):
 # 0 3 * * * cd /path/to/trainer-bot && .venv/bin/python backup.py trainer_data.db backups/ >> logs/backup.log 2>&1
 ```
+
+The knowledge base auto-seeds on first start; your training calendar is
+yours to provide (seed `training_phases` + `workout_plan` for your own
+event — `/today` degrades gracefully until then).
 
 ### Docker
 

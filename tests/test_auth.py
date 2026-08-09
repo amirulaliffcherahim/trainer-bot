@@ -76,7 +76,7 @@ def test_callback_data_under_64_bytes() -> None:
 
 def test_build_application_registers_handlers() -> None:
     conn = init_db(":memory:")
-    app = build_application(_settings(db_path=":memory:"))
+    app = build_application(_settings(db_path=":memory:"), auto_seed=False)
     names = [handler.callback.__name__ for handler in app.handlers[0]]
     for expected in (
         "cmd_start", "cmd_today", "cmd_summary", "cmd_log", "cmd_weight",
@@ -84,4 +84,21 @@ def test_build_application_registers_handlers() -> None:
         "handle_callback",
     ):
         assert expected in names, f"missing handler {expected}"
+    assert app.job_queue is not None, "job-queue extra missing — notifications silently disabled"
     conn.close()
+
+
+def test_auto_seed_ingests_kb_when_empty(tmp_path) -> None:
+    from bot import auto_seed
+    from retrieval import TfEmbedder
+
+    conn = init_db(":memory:")
+    kb_root = tmp_path / "runner"
+    kb_root.mkdir()
+    (kb_root / "pacing.md").write_text("# Pacing\n\nGoal pace from the target.")
+    auto_seed(conn, kb_root=tmp_path, embedder=TfEmbedder())
+    count = conn.execute("SELECT COUNT(*) AS n FROM kb_chunks").fetchone()["n"]
+    assert count >= 1
+    # Second call is a no-op.
+    auto_seed(conn, kb_root=tmp_path, embedder=TfEmbedder())
+    assert conn.execute("SELECT COUNT(*) AS n FROM kb_chunks").fetchone()["n"] == count

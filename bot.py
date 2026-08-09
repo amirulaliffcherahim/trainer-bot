@@ -543,8 +543,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # --- application ----------------------------------------------------------
 
 
-def build_application(settings: Settings) -> Application:
+def auto_seed(conn, *, kb_root: Path | None = None, embedder=None) -> None:
+    """Cold-start seeding: ingest the knowledge base on first start.
+
+    The training calendar/phase seeding is intentionally NOT automated — the
+    deployer's event calendar is theirs to provide (dynamic by design);
+    /today degrades gracefully until then.
+    """
+    kb_root = kb_root or Path(__file__).resolve().parent / "knowledge"
+    count = conn.execute("SELECT COUNT(*) AS n FROM kb_chunks").fetchone()["n"]
+    if count > 0:
+        return
+    log.info("Knowledge base empty — auto-ingesting %s", kb_root)
+    from ingest_kb import ingest_kb
+
+    ingest_kb(conn, embedder or _get_embedder(), kb_root)
+
+
+def build_application(settings: Settings, *, auto_seed: bool = True) -> Application:
     conn = db.init_db(settings.db_path)
+    if auto_seed:
+        auto_seed(conn)
     client = LLMClient(
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
