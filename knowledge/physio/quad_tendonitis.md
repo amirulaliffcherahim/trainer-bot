@@ -2,8 +2,8 @@
 
 ## What it is (plainly)
 - Overload of the quad tendon where it meets the kneecap. Common in runners
-  with a big weekly step-up in volume or hill/speed work. The athlete has a
-  history of this pattern — prevention is a standing priority.
+  with a big weekly step-up in volume or hill/speed work. Prevention beats
+  rehab: consistent load progression plus the quad stretch habit.
 
 ## Warning signs
 - Pain at the bottom of the kneecap, worse with stairs, squats, or after

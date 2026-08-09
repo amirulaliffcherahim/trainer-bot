@@ -2,7 +2,7 @@
 
 Design law #2: the AI talks, the code does math. Everything in this module is
 pure and deterministic; persona prompts receive the formatted block and must
-never recompute numbers themselves. KL/Selangor heat and humidity enter via
+never recompute numbers themselves. Tropical heat and humidity enter via
 extracted notes (weather) — personas interpret them, code only reports the
 raw trends.
 """
@@ -161,6 +161,6 @@ def format_facts_block(facts: FactsBlock) -> str:
         f"- Pace trend (verified runs): {pace}\n"
         f"- Latest weight: {facts.weight_latest_kg if facts.weight_latest_kg is not None else 'n/a'} kg\n"
         f"- Sessions completed (last 7 days): {facts.completed_sessions_7d}\n"
-        "- Note: KL/Selangor heat and humidity affect pace and hydration; "
+        "- Note: tropical heat and humidity affect pace and hydration; "
         "factor them into advice if the athlete mentions hot or rainy weather."
     )

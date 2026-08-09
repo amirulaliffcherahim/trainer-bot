@@ -97,4 +97,4 @@ def test_format_facts_block_renders_pace_and_labels() -> None:
     assert "7:05/km" in block
     assert "+8.8%" in block
     assert "do not recompute" in block
-    assert "KL/Selangor" in block
+    assert "tropical" in block

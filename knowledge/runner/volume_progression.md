@@ -8,14 +8,14 @@
 - After 2–3 weeks of increase, schedule a **step-back week** (60–70% volume)
   before the next push.
 
-## Base-phase volume (now → Jul 2026)
+## Base-phase volume
 - Start modest: 3 runs/week totaling 15–20 km (Tue 5–6 km easy/tempo, Thu
   4–5 km easy, Sat 6–8 km long).
 - Grow the long run by ~1 km every other week. Long run ≈ 25–30% of weekly
   volume, never more than 35%.
 - Target by end of base: 30–35 km/week, long run 12–14 km. Slow beats fast.
 
-## Build-phase volume (Jul → Oct 2026)
+## Build-phase volume
 - Add a 4th run (short easy) if recovery allows; volume ceiling ~45–50 km/week.
 - Long runs top out at 16–18 km for a half-marathon block — no need to exceed
   ~20 km except for confidence.

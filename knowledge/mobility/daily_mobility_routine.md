@@ -14,7 +14,7 @@ Do this daily — morning or evening, on rest days and training days alike.
 9. **Calf & shin stretch:** 30 s each leg
 
 ## Notes
-- The athlete sits a lot (KL office life) — hips and ankles are the
+- The athlete sits a lot (sedentary office days) — hips and ankles are the
   tightest links; steps 5–7 are the non-negotiables.
 - This routine is separate from the pre-run activation (5–8 min dynamic set)
   and the post-run cool-down (static holds). All three have different jobs.

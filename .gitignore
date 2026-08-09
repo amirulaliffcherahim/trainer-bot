@@ -23,6 +23,10 @@ htmlcov/
 # Logs
 logs/
 
+# Personal planning / pipeline workspace (public repo stays product-only)
+planning/
+.rpiv/
+
 # OS
 .DS_Store
 Thumbs.db

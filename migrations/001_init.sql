@@ -27,10 +27,10 @@ CREATE INDEX IF NOT EXISTS idx_daily_logs_date_user ON daily_logs (date, user_id
 
 CREATE TABLE IF NOT EXISTS athlete_profile (
     user_id INTEGER PRIMARY KEY,
-    height_cm REAL DEFAULT 175.0,
-    weight_kg REAL DEFAULT 55.0,
-    target_race TEXT DEFAULT 'SELMAR Half Marathon 2026',
-    target_pace TEXT DEFAULT '7:10 min/km',
+    height_cm REAL,
+    weight_kg REAL,
+    target_race TEXT,
+    target_pace TEXT,
     updated_at TEXT DEFAULT (datetime('now'))
 );
 

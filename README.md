@@ -5,11 +5,11 @@ coach, calisthenics coach, mobility coach, physio** — think about every messag
 in parallel and merge into one coherent answer, with safety rules that can
 never be overridden.
 
-Built for a real training goal: the SELMAR Half Marathon (Nov 1 2026, target
-**2:30:00**) and TwinCity Half Marathon (Jan 24 2027), in Kuala Lumpur heat.
+**Fully event-agnostic:** the bot learns your event, goal, target pace, and
+training calendar from what YOU tell it (profile + `/target` + seeded phase
+calendar) — nothing is baked in. No personal data, no hardcoded plans.
 
-> **Status:** early development (Phases 1–3 landed: foundation, extraction &
-> facts, persona layer). Not yet runnable as a live bot.
+> **Status:** all 9 phases landed. 173+ tests, hermetic (no network needed).
 
 ## Why this design
 
@@ -32,20 +32,26 @@ confident, wrong advice. This bot is engineered around one law:
   it enters your history.
 - **Evolution, not drift** — training phases, weekly rollups, and milestone
   re-plan gates keep advice accurate over months, not just day one.
+- **Proactive, not naggy** — run reminders, Sunday recaps, and coach
+  suggestions (max 2/day, quiet at night, `/mute` respected, per-type
+  toggles via `/notify`).
 
 ## Architecture
 
 ```
-Telegram ──> bot.py (handlers, allowlist gate)
+Telegram ──> bot.py (handlers, allowlist gate, debounce)
                  │
-                 ├──> guardrails.py   (red-flag rules run FIRST, in code)
-                 ├──> extract.py      (LLM: text → validated structured JSON)
-                 ├──> facts.py        (code: rollups, trends, pace math)
-                 ├──> retrieval.py    (per-persona KB, local embeddings, cosine)
-                 ├──> personas/       (4 expert role prompts, config files)
-                 ├──> synthesize.py   (4 parallel drafts → 1 merged answer)
-                 ├──> validate.py     (citations present, numbers match facts)
-                 └──> db.py           (SQLite, forward-only migrations)
+                 ├──> scheduler.py   (run reminders, Sunday recap, suggestions)
+                 ├──> guardrails.py  (red-flag rules run FIRST, in code)
+                 ├──> extract.py     (LLM: text → validated structured JSON)
+                 ├──> facts.py       (code: rollups, trends, pace math)
+                 ├──> retrieval.py   (per-persona KB, local embeddings, cosine)
+                 ├──> personas/      (4 expert role prompts, config files)
+                 ├──> synthesize.py  (4 parallel drafts → 1 merged answer)
+                 ├──> validate.py    (citations present, numbers match facts)
+                 ├──> suggest.py     (10 deterministic triggers, anti-nag caps)
+                 ├──> predict.py     (Riegel race-time prediction, ±5% band)
+                 └──> db.py          (SQLite, forward-only migrations)
 ```
 
 Models: **DeepSeek V4-Flash** (primary, OpenAI-compatible API) with fallback
@@ -75,6 +81,26 @@ Required environment variables (see `.env.example`):
 Optional: `VISION_API_KEY` (Gemini Flash) — only if you upgrade the screenshot
 reader from local OCR to a vision LLM.
 
+## Making it yours (dynamic setup)
+
+1. `/start` → set your profile (weight, etc.)
+2. Tell the bot your event in plain chat — it stores what it learns in your
+   profile and answers relative to it.
+3. Seed the phase calendar + workout plan (Phase 0 seed script) for your own
+   event dates, or let the bot work phase-less with what you share.
+4. `/notify` → toggle run reminders, Sunday recap, and coach suggestions.
+
+## Notifications
+
+| Type | When | Toggle |
+|---|---|---|
+| Run reminder | Daily at `RUN_REMIND_TIME` if a session is scheduled | `/notify` |
+| Sunday recap | Sundays 09:00 — volume, RPE, fatigue, streak, month total | `/notify` |
+| Coach suggestions | Hourly 08:00–21:00, max 2/day | `/notify` + `/mute` |
+
+Every push is sent at most once per day (dedup table); dismissals silence a
+suggestion type for 7 days.
+
 ## Security (read this)
 
 - **Allowlist gate:** only `ALLOWED_USER_IDS` may use the bot. Everyone else is
@@ -87,15 +113,17 @@ reader from local OCR to a vision LLM.
 - **No webhook:** the bot uses long-polling — there is no public endpoint to
   attack.
 - **Logging:** secrets and Bearer tokens are redacted before writing.
-- If you deploy this, enable **GitHub secret scanning + push protection** and
-  **Dependabot** on your fork.
+- Enable **GitHub secret scanning + push protection** and **Dependabot** on
+  your fork.
 
 ## Project structure
 
 ```
 config.py          env loading, fail-fast validation
+bot.py             Telegram wiring (handlers, allowlist gate, jobs)
+scheduler.py       run reminders, Sunday recap, suggestion pushes
 db.py              SQLite + forward-only migration runner
-migrations/        schema migrations (001 init, 002 indexes, 003 run metrics)
+migrations/        schema migrations (001 init … 004 notifications)
 extract.py         text → validated structured data (one corrective re-prompt)
 facts.py           deterministic computed facts block for prompts
 personas/          the 4 expert role prompts (config, not code)
@@ -105,34 +133,57 @@ ingest_kb.py       corpus → kb_chunks (CLI: python ingest_kb.py --help)
 guardrails.py      red-flag rules, volume caps, symptom signals
 synthesize.py      concurrent persona passes + editor merge
 validate.py        output validation (citations, numbers)
-llm_client.py      DeepSeek client: retry/backoff, fallback chain, JSON mode
-logging_config.py  rotation + secret redaction
-tests/             pytest suite (60 tests)
-planning/          design docs, user flows, decision records
+suggest.py         10 deterministic suggestion triggers + anti-nag caps
+predict.py         Riegel race-time prediction
+replan.py          milestone re-plan proposals (never auto-applied)
+retention.py       streaks, monthly totals, Sunday recap
+challenges.py      weekly challenge templates + tracking
+backup.py          atomic SQLite backups (30-day retention)
+ocr.py             local OCR (4096px cap, optional vision upgrade)
+strava.py          screenshot pipeline: math check → echo-confirm → verified
+workouts.py        phase-aware /today queries
+eval/              golden cases + synthetic images + regression gate
+tests/             pytest suite (hermetic, no network)
 ```
 
-## Knowledge base
+## Deployment
 
-The bot's advice is grounded in `knowledge/` — split by persona:
+### PM2 (no Docker)
 
-- `runner/` — SELMAR 2:30:00 pacing strategy, the 14-week program, volume
-  progression, KL heat/humidity, rest-day rules
-- `calisthenics/` — the athlete's fixed exercise list, progressions, split
-- `mobility/` — pre-run activation, cool-down, daily 10-minute routine
-- `physio/` — triage + red flags, DOMS vs injury, quad tendonitis and shin
-  splint rehab, Yoko Yoko safe use
+```bash
+pip install pm2  # or npm i -g pm2
+pm2 start ecosystem.config.js
+pm2 save && pm2 startup
+pm2 logs trainer-bot
+# daily backup (cron):
+# 0 3 * * * cd /path/to/trainer-bot && .venv/bin/python backup.py trainer_data.db backups/ >> logs/backup.log 2>&1
+```
+
+### Docker
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+docker compose run --rm backup   # manual backup
+```
+
+- Runs as a **non-root** user; SQLite persists in a named volume, logs in
+  `./logs`. Long-polling — no exposed port.
+- Backups: atomic online snapshot (`trainer_data_YYYY-MM-DD.db`), 30-day
+  retention. Restore (bot stopped):
+  `python -c "from backup import restore_db; restore_db('backups/trainer_data_2026-01-01.db', 'trainer_data.db')"`
 
 ## Roadmap
 
 - [x] Phase 1 — Foundation (scaffold, env, migrations, DB, LLM client, logging)
 - [x] Phase 2 — Extraction & facts (structured logs, rollups, pace math)
 - [x] Phase 3 — Persona layer (4 role prompts, KB corpora, retrieval, guardrails)
-- [ ] Phase 4 — Synthesis (concurrent drafts → merged answer) & validation
-- [ ] Phase 5 — Telegram handlers + Strava screenshot pipeline
-- [ ] Phase 6 — Suggestion engine + race-time prediction
-- [ ] Phase 7 — Eval suite (regression gate)
-- [ ] Phase 8 — Re-plan gates + retention
-- [ ] Phase 9 — Deployment (Docker/systemd, backups)
+- [x] Phase 4 — Synthesis (concurrent drafts → merged answer) & validation
+- [x] Phase 5 — Telegram handlers + Strava screenshot pipeline
+- [x] Phase 6 — Suggestion engine + race-time prediction
+- [x] Phase 7 — Eval suite (regression gate)
+- [x] Phase 8 — Re-plan gates + retention
+- [x] Phase 9 — Deployment (Docker, PM2, backups) + notifications
 
 ## License
 

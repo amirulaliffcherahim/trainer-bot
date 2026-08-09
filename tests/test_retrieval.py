@@ -22,8 +22,8 @@ def _make_corpus(tmp_path):
         "wall sits first, then slow decline squats."
     )
     (runner / "pacing.md").write_text(
-        "# Pacing\n\nSELMAR target 2:30:00 at 7:06 per km. Negative split the "
-        "race. Easy runs at 7:45 to 8:15."
+        "# Pacing\n\nGoal pace from the athlete's target. Negative split the "
+        "race. Easy runs 60-90s slower than goal pace."
     )
     return tmp_path
 

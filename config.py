@@ -31,6 +31,7 @@ class Settings(BaseModel):
     fallback_model: str = "deepseek-v4-pro"
     log_level: str = "INFO"
     db_path: str = "trainer_data.db"
+    run_remind_time: str = "17:30"
 
     @field_validator("allowed_user_ids", mode="before")
     @classmethod
@@ -81,6 +82,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             fallback_model=merged.get("FALLBACK_MODEL", "deepseek-v4-pro"),
             log_level=merged.get("LOG_LEVEL", "INFO"),
             db_path=merged.get("DB_PATH", "trainer_data.db"),
+            run_remind_time=merged.get("RUN_REMIND_TIME", "17:30"),
         )
     except ValueError as exc:
         raise ConfigError(f"Invalid configuration: {exc}") from exc

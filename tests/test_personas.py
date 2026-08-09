@@ -19,10 +19,14 @@ def test_front_matter_parsed() -> None:
 
 
 def test_veto_hierarchy() -> None:
+    """Plan order: physio > runner > calisthenics > mobility."""
     personas = load_personas()
     assert personas["physio"].veto_level == 4
-    assert personas["runner"].veto_level == 1
-    assert personas["physio"].veto_level > personas["runner"].veto_level
+    assert personas["runner"].veto_level == 3
+    assert personas["calisthenics"].veto_level == 2
+    assert personas["mobility"].veto_level == 1
+    order = sorted(personas.values(), key=lambda p: -p.veto_level)
+    assert [p.key for p in order] == ["physio", "runner", "calisthenics", "mobility"]
 
 
 def test_missing_persona_raises() -> None:

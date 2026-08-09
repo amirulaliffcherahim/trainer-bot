@@ -6,8 +6,8 @@
   tendons, and joints that Wed/Sun exist to repair.
 - Active mobility instead: 20–30 min walks + the daily 10-min head-to-toe
   routine + light stretching.
-- Protein: 20–30 g every 3–4 hours, totaling ~99–110 g/day (surplus diet
-  ~2,700 kcal/day — the athlete is underweight and must eat to recover).
+- Protein: 20–30 g every 3–4 hours — a consistent surplus diet is the
+  recovery baseline (the athlete's target intake comes from their profile).
 - Sleep: 7.5–9 hours. Sleep is the #1 recovery tool; a missed session is
   cheaper than a missed night.
 

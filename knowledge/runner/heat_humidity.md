@@ -1,13 +1,13 @@
-# Running in KL Heat & Humidity
+# Running in Heat & Humidity
 
 ## The reality
-- Kuala Lumpur/Selangor: 28–34°C, 60–95% humidity year-round. Effective
+- Tropical climates: 28–34°C, 60–95% humidity year-round. Effective
   (feels-like) temperature is routinely 5–8°C above the reading.
 - Performance drops measurably above ~21°C wet-bulb. On hot days, pace
   expectations drop 5–15 s/km — this is physiological, not a loss of fitness.
 
 ## Hydration
-- Drink to thirst + a bit more on hot runs: ~500–750 ml/hour in KL heat.
+- Drink to thirst + a bit more on hot runs: ~500–750 ml/hour in tropical heat.
 - Pre-hydrate: 400–600 ml in the 2 h before a long run.
 - Add electrolytes (sodium!) on runs over 60 min — plain water alone in this
   humidity dilutes salt.
