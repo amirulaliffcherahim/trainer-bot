@@ -9,7 +9,9 @@ never be overridden.
 training calendar from what YOU tell it (profile + `/target` + seeded phase
 calendar) — nothing is baked in. No personal data, no hardcoded plans.
 
-> **Status:** all 9 phases landed. 173+ tests, hermetic (no network needed).
+> **Status:** all 9 phases landed + production hardening (thread-safe SQLite,
+> job-queue scheduler, OCR system libs, KB auto-seed). **174 tests**, hermetic
+> (no network needed).
 
 ## Why this design
 
