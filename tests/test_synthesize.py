@@ -64,6 +64,18 @@ async def test_four_passes_run_concurrently() -> None:
 
 
 @pytest.mark.asyncio
+async def test_profile_snapshot_injected_into_passes() -> None:
+    client = FakeLLMClient(["draft"] * 4)
+    await run_persona_passes(
+        client, PERSONAS, facts=FACTS, user_message="hi",
+        retrieval_fn=lambda k, m: "",
+        profile_str="## Profile\nheight 175 cm, VO2 max n/a",
+    )
+    for call in client.calls:
+        assert "VO2 max n/a" in call["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
 async def test_failed_persona_pass_becomes_placeholder() -> None:
     script = ["runner draft", AllModelsFailed("down"), "mobility draft", "physio draft"]
     client = FakeLLMClient(script)

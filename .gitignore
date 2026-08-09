@@ -27,6 +27,9 @@ logs/
 planning/
 .rpiv/
 
+# Your personal training calendar (never ship it)
+seed_plan.yaml
+
 # OS
 .DS_Store
 Thumbs.db

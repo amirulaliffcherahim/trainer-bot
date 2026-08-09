@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from telegram import InlineKeyboardMarkup, Update
@@ -217,6 +218,201 @@ async def cmd_log(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+TIME_RE_3 = re.compile(r"^(\d{1,2}):([0-5]\d):([0-5]\d)$")  # H:MM:SS
+TIME_RE_2 = re.compile(r"^(\d{1,2}):([0-5]\d)$")  # M:SS (race times < 100 min)
+HALF_MARATHON_KM = 21.0975
+
+
+def parse_target_arg(text: str) -> tuple[str, int]:
+    """'/target <race name> <H:MM:SS | M:SS>' → (race_name, target_seconds)."""
+    parts = text.strip().split()
+    if len(parts) < 2:
+        raise ValueError("usage: /target <race name> <H:MM:SS> — e.g. /target SELMAR Half Marathon 2:30:00")
+    time_token = parts[-1]
+    match = TIME_RE_3.match(time_token)
+    if match:
+        total = int(match.group(1)) * 3600 + int(match.group(2)) * 60 + int(match.group(3))
+    else:
+        match = TIME_RE_2.match(time_token)
+        if not match:
+            raise ValueError(f"target time must be M:SS or H:MM:SS, got {time_token!r}")
+        total = int(match.group(1)) * 60 + int(match.group(2))
+    if total <= 0:
+        raise ValueError("target time must be positive")
+    return " ".join(parts[:-1]), total
+
+
+_WEEKDAYS = {
+    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+    "friday": 4, "saturday": 5, "sunday": 6,
+}
+
+
+def resolve_log_date(raw: str | None, today: date) -> str | None:
+    """Normalize a date mention to ISO YYYY-MM-DD. None when unparseable.
+
+    Accepts: ISO dates, today/yesterday, 'N days ago', 'last <weekday>'.
+    """
+    if not raw:
+        return None
+    text = raw.strip().lower()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", text):
+        return text
+    if text == "today":
+        return today.isoformat()
+    if text == "yesterday":
+        return (today - timedelta(days=1)).isoformat()
+    match = re.match(r"^(\d+)\s+days?\s+ago$", text)
+    if match:
+        return (today - timedelta(days=int(match.group(1)))).isoformat()
+    match = re.match(r"^last\s+(" + "|".join(_WEEKDAYS) + r")$", text)
+    if match:
+        target = _WEEKDAYS[match.group(1)]
+        delta = (today.weekday() - target) % 7
+        if delta == 0:
+            delta = 7
+        return (today - timedelta(days=delta)).isoformat()
+    return None
+
+
+PROFILE_KEYS = {
+    "height": ("height_cm", 100, 250),
+    "weight": ("weight_kg", 30, 200),
+    "age": ("age", 10, 100),
+    "vo2": ("vo2_max", 20, 90),
+    "max_bpm": ("max_bpm", 80, 250),
+    "resting_bpm": ("resting_bpm", 30, 150),
+}
+NA_VALUES = {"n/a", "na", "-", "unknown", "none"}
+
+
+def parse_profile_arg(tokens: list[str]) -> dict[str, object]:
+    """['height=175', 'age=28', 'vo2=n/a'] → {"height_cm": 175.0, "age": 28, "vo2_max": None}.
+    'n/a' and friends → None (NULL). Unknown keys / bad values raise ValueError."""
+    out: dict[str, object] = {}
+    for token in tokens:
+        if "=" not in token:
+            raise ValueError(f"expected key=value, got {token!r}")
+        key, _, raw = token.partition("=")
+        key = key.strip().lower()
+        if key not in PROFILE_KEYS:
+            raise ValueError(f"unknown field {key!r} — use: {', '.join(sorted(PROFILE_KEYS))}")
+        column, low, high = PROFILE_KEYS[key]
+        value = raw.strip()
+        if value.lower() in NA_VALUES or value == "":
+            out[column] = None
+            continue
+        try:
+            parsed = float(value) if column in ("height_cm", "weight_kg", "vo2_max") else int(float(value))
+        except ValueError as exc:
+            raise ValueError(f"{key} value {value!r} is not a number")
+        if not (low <= parsed <= high):
+            raise ValueError(f"{key} must be {low}-{high}, got {value}")
+        out[column] = parsed
+    return out
+
+
+def profile_snapshot(conn, user_id: int) -> str:
+    """One-line profile summary injected into every persona prompt."""
+    row = conn.execute("SELECT * FROM athlete_profile WHERE user_id = ?", (user_id,)).fetchone()
+    if row is None:
+        return "## Profile\nNo profile data yet — /profile to set it."
+
+    def fmt(value, suffix=""):
+        if value is None:
+            return "n/a"
+        if isinstance(value, float):
+            value = f"{value:g}"
+        return f"{value}{suffix}"
+
+    parts = [
+        f"height {fmt(row['height_cm'], ' cm')}",
+        f"weight {fmt(row['weight_kg'], ' kg')}",
+        f"age {fmt(row['age'], ' y')}",
+        f"VO2 max {fmt(row['vo2_max'])}",
+        f"max HR {fmt(row['max_bpm'], ' bpm')}",
+        f"resting HR {fmt(row['resting_bpm'], ' bpm')}",
+    ]
+    if row["target_race"]:
+        parts.append(f"target {row['target_race']} @ {row['target_pace']}")
+    return "## Profile (athlete data — treat as facts)\n" + ", ".join(parts)
+
+
+async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings: Settings = context.bot_data["settings"]
+    if not _gate(update, settings):
+        return
+    conn = context.bot_data["conn"]
+    user_id = update.effective_user.id
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            profile_snapshot(conn, user_id)
+            + "\n\nUpdate: /profile height=175 weight=56 age=28 vo2=n/a max_bpm=190 resting_bpm=55"
+            + "\nAny field accepts n/a to clear it."
+        )
+        return
+    try:
+        updates = parse_profile_arg(args)
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+        return
+    sets = ", ".join(f"{col} = ?" for col in updates)
+    conn.execute(
+        f"INSERT INTO athlete_profile (user_id, updated_at) VALUES (?, datetime('now')) "
+        f"ON CONFLICT(user_id) DO UPDATE SET {sets}, updated_at = datetime('now')",
+        [user_id, *updates.values()],
+    )
+    conn.commit()
+    await update.message.reply_text(
+        "✅ Profile updated:\n" + profile_snapshot(conn, user_id)
+    )
+
+
+async def cmd_target(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings: Settings = context.bot_data["settings"]
+    if not _gate(update, settings):
+        return
+    conn = context.bot_data["conn"]
+    user_id = update.effective_user.id
+    arg = " ".join(context.args or [])
+    if not arg:
+        row = conn.execute(
+            "SELECT target_race, target_pace FROM athlete_profile WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if row and row["target_race"]:
+            await update.message.reply_text(
+                f"🎯 {row['target_race']} — target pace {row['target_pace']}\n"
+                "Update: /target <race name> <H:MM:SS>"
+            )
+        else:
+            await update.message.reply_text(
+                "No target set. Usage: /target <race name> <H:MM:SS>\n"
+                "e.g. /target SELMAR Half Marathon 2:30:00"
+            )
+        return
+    try:
+        race_name, target_sec = parse_target_arg(arg)
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+        return
+    pace_sec_km = target_sec / HALF_MARATHON_KM
+    pace_text = f"{int(pace_sec_km // 60)}:{int(pace_sec_km % 60):02d} min/km"
+    conn.execute(
+        "INSERT INTO athlete_profile (user_id, target_race, target_pace, updated_at) "
+        "VALUES (?, ?, ?, datetime('now')) "
+        "ON CONFLICT(user_id) DO UPDATE SET target_race = excluded.target_race, "
+        "target_pace = excluded.target_pace, updated_at = datetime('now')",
+        (user_id, race_name, pace_text),
+    )
+    conn.commit()
+    await update.message.reply_text(
+        f"🎯 Target set: **{race_name}** in {arg.split()[-1]} ≈ {pace_text}.\n"
+        "All pace advice now references this goal."
+    )
+
+
 async def cmd_weight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.bot_data["settings"]
     if not _gate(update, settings):
@@ -248,8 +444,20 @@ async def cmd_weight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "updated_at = datetime('now')",
         (user_id, weight),
     )
+    # Also log today's weight as a daily entry so weekly weight trends work.
+    db.save_log(
+        conn,
+        date=date.today().isoformat(),
+        user_id=user_id,
+        user_input="weight",
+        ai_response="weight logged",
+        weight_kg=weight,
+        completed=0,
+    )
     conn.commit()
-    await update.message.reply_text(f"Weight updated: {weight} kg ✅")
+    await update.message.reply_text(
+        f"Weight updated: {weight} kg ✅ (also recorded in today's history)"
+    )
 
 
 async def cmd_phase(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -326,6 +534,60 @@ async def cmd_mute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+HELP_TEXT = (
+    "🤖 **Trainer bot commands**\n\n"
+    "• /start — introduction & current phase\n"
+    "• /today — today's scheduled session (needs seeded calendar)\n"
+    "• /summary — weekly rollup (volume, RPE, fatigue)\n"
+    "• /log — how to log: plain text (\"easy 5km, RPE 6\") or a Strava "
+    "screenshot; backdate with \"on 2026-07-28\" / \"yesterday\" / \"3 days ago\"\n"
+    "• /weight <kg> — update weight (also records today's entry)\n"
+    "• /profile [key=value …] — height, weight, age, vo2, max_bpm, "
+    "resting_bpm; n/a clears a field\n"
+    "• /target <race> <H:MM:SS> — set your event goal (e.g. /target SELMAR Half Marathon 2:30:00)\n"
+    "• /phase — current training phase\n"
+    "• /personas — the four expert perspectives\n"
+    "• /predict — race-time prediction from verified efforts\n"
+    "• /notify — toggle run reminders / Sunday recap / suggestions\n"
+    "• /mute 1d|1w — silence notifications\n"
+    "• /help — this message\n\n"
+    "💡 Tip: typing / in Telegram shows this menu."
+)
+
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings: Settings = context.bot_data["settings"]
+    if not _gate(update, settings):
+        return
+    await update.message.reply_text(HELP_TEXT)
+
+
+COMMAND_LIST = [
+    ("start", "Introduction"),
+    ("today", "Today's session"),
+    ("summary", "Weekly stats"),
+    ("log", "Log a run (text or screenshot)"),
+    ("weight", "Update weight"),
+    ("profile", "Height / VO2 / age / heart-rate baselines"),
+    ("target", "Set event goal"),
+    ("predict", "Race-time prediction"),
+    ("phase", "Current training phase"),
+    ("personas", "The four experts"),
+    ("notify", "Notification toggles"),
+    ("mute", "Silence notifications"),
+    ("help", "Explain commands"),
+]
+
+
+async def _set_commands(app) -> None:
+    """Register the / menu (Telegram shows it when the user types '/')."""
+    from telegram import BotCommand
+
+    await app.bot.set_my_commands(
+        [BotCommand(name, description) for name, description in COMMAND_LIST]
+    )
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.bot_data["settings"]
     if not _gate(update, settings):
@@ -365,8 +627,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # 3. Computed facts from real data (code, not AI).
     rows = db.get_recent_history(conn, user_id)
     fb = facts.compute_facts(rows, today=date.today())
-
-    # 4–5. Retrieval + 4 concurrent persona passes + editor merge.
     embedder = _get_embedder()
 
     def retrieval_fn(persona_key: str, message: str) -> str:
@@ -380,6 +640,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             facts=fb,
             user_message=text,
             retrieval_fn=retrieval_fn,
+            profile_str=profile_snapshot(conn, user_id),
         )
     except AllModelsFailed:
         await update.message.reply_text(
@@ -390,9 +651,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(answer)
 
     # 6. Store the log (structured values from extraction; never AI-derived pace).
+    # Backdating: the message may say WHEN it happened ("on 2026-07-28",
+    # "yesterday", "3 days ago") — resolved in code, never trusted raw.
+    log_date = (
+        resolve_log_date(extracted.date_raw, date.today()) or date.today().isoformat()
+    )
+    # Trust-me text: user-typed distance + time = verified input → feeds
+    # stats AND the prediction anchors.
+    trusted = bool(extracted.distance_km and extracted.moving_time_min)
     db.save_log(
         conn,
-        date=date.today().isoformat(),
+        date=log_date,
         user_id=user_id,
         user_input=text,
         ai_response=answer,
@@ -404,9 +673,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         distance_km=extracted.distance_km,
         moving_time_min=extracted.moving_time_min,
         completed=1 if extracted.completed else 0,
+        verified=1 if trusted else 0,
         model_used=client.last_model_used,
         prompt_version="pipeline-v1",
     )
+    if trusted:
+        conn.execute(
+            "INSERT INTO performance_anchors (date, distance_km, time_sec, source, verified) "
+            "VALUES (?, ?, ?, 'chat', 1)",
+            (log_date, extracted.distance_km, int(round(extracted.moving_time_min * 60))),
+        )
+        conn.commit()
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -590,10 +867,14 @@ def build_application(settings: Settings, *, auto_seed_kb: bool = True) -> Appli
     app.add_handler(CommandHandler("personas", cmd_personas))
     app.add_handler(CommandHandler("notify", cmd_notify))
     app.add_handler(CommandHandler("mute", cmd_mute))
+    app.add_handler(CommandHandler("target", cmd_target))
+    app.add_handler(CommandHandler("profile", cmd_profile))
+    app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(handle_callback))
     scheduler.register_jobs(app)
+    app.post_init = _set_commands
     return app
 
 

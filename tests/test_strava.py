@@ -178,6 +178,14 @@ def test_confirm_draft_stores_verified() -> None:
     assert row["distance_km"] == 10.42
     assert row["avg_pace_sec_km"] == 418  # computed in code, never from the model
     assert row["completed"] == 1
+    # Verified efforts become prediction anchors (code-computed values only).
+    anchor = conn.execute(
+        "SELECT * FROM performance_anchors WHERE source = 'screenshot'"
+    ).fetchone()
+    assert anchor is not None
+    assert anchor["distance_km"] == 10.42
+    assert anchor["time_sec"] == 4356  # 72.6 min
+    assert anchor["verified"] == 1
 
 
 def test_confirm_draft_corrected_pace_used() -> None:

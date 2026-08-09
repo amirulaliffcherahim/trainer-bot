@@ -79,6 +79,7 @@ async def run_persona_passes(
     facts: FactsBlock,
     user_message: str,
     retrieval_fn,
+    profile_str: str = "",
 ) -> dict[str, PersonaDraft]:
     """Run the 4 persona passes concurrently.
 
@@ -86,6 +87,8 @@ async def run_persona_passes(
     no match). facts formatting happens here, once.
     """
     facts_str = format_facts_block(facts)
+    if profile_str:
+        facts_str += "\n\n" + profile_str
 
     async def _one(persona: PersonaConfig) -> PersonaDraft:
         kb_section = retrieval_fn(persona.key, user_message)
@@ -180,6 +183,7 @@ async def generate_reply(
     facts: FactsBlock,
     user_message: str,
     retrieval_fn,
+    profile_str: str = "",
 ) -> tuple[str, dict[str, PersonaDraft]]:
     """Full synthesis pipeline: persona passes → editor → validation, with
     one corrective editor pass on validation failure."""
@@ -189,6 +193,7 @@ async def generate_reply(
         facts=facts,
         user_message=user_message,
         retrieval_fn=retrieval_fn,
+        profile_str=profile_str,
     )
     if all(draft.content is None for draft in drafts.values()):
         raise AllModelsFailed("all persona passes failed — use degraded mode")

@@ -56,6 +56,9 @@ Rules:
 - distance_km / moving_time_min: only if the message states them.
 - session_type: one of: {session_types}. "other" if unclear.
 - completed: true only if the session was actually done (past tense / done).
+- date_raw: if the message says WHEN the activity happened (e.g. 2026-07-28,
+  "yesterday", "3 days ago", "last Saturday"), copy that phrase VERBATIM;
+  otherwise omit.
 - notes: keep context verbatim-ish (weather, symptoms, feelings), as written.
 
 Respond with JSON ONLY. No prose, no markdown fences.
@@ -87,6 +90,7 @@ class LogExtraction(BaseModel):
     moving_time_min: float | None = Field(default=None, gt=0, le=600)
     session_type: str | None = Field(default=None)
     completed: bool = False
+    date_raw: str | None = Field(default=None, max_length=40)
     notes: str | None = Field(default=None, max_length=2000)
 
     @field_validator("rpe", "fatigue_level", mode="before")

@@ -1,8 +1,17 @@
-"""test_auth.py — allowlist gate, debounce, draft store, callback length,
-application wiring (no network)."""
+"""bot.py tests — allowlist gate, debounce, draft store, callback length,
+application wiring, /target parsing (no network)."""
 
+import pytest
+
+from bot import (
+    Debouncer,
+    DraftStore,
+    authorize,
+    build_application,
+    parse_target_arg,
+    resolve_log_date,
+)
 from db import init_db
-from bot import Debouncer, DraftStore, authorize, build_application
 from config import Settings
 from strava import StravaFields, StravaRead, build_confirm_keyboard
 
@@ -80,8 +89,8 @@ def test_build_application_registers_handlers() -> None:
     names = [handler.callback.__name__ for handler in app.handlers[0]]
     for expected in (
         "cmd_start", "cmd_today", "cmd_summary", "cmd_log", "cmd_weight",
-        "cmd_phase", "cmd_personas", "handle_text", "handle_photo",
-        "handle_callback",
+        "cmd_phase", "cmd_personas", "cmd_target", "handle_text",
+        "handle_photo", "handle_callback",
     ):
         assert expected in names, f"missing handler {expected}"
     assert app.job_queue is not None, "job-queue extra missing — notifications silently disabled"
@@ -115,3 +124,82 @@ def test_build_application_auto_seed_runs_without_crash(monkeypatch) -> None:
     conn = app.bot_data["conn"]
     count = conn.execute("SELECT COUNT(*) AS n FROM kb_chunks").fetchone()["n"]
     assert count >= 1
+
+
+# --- /target parsing + date resolution -------------------------------------
+
+
+def test_parse_target_arg() -> None:
+    name, sec = parse_target_arg("SELMAR Half Marathon 2:30:00")
+    assert name == "SELMAR Half Marathon"
+    assert sec == 9000
+    name, sec = parse_target_arg("10K 55:00")
+    assert name == "10K"
+    assert sec == 3300
+    name, sec = parse_target_arg("5K 32:45")
+    assert sec == 1965
+    with pytest.raises(ValueError):
+        parse_target_arg("no time here")
+    with pytest.raises(ValueError):
+        parse_target_arg("race 2:99:00")
+    with pytest.raises(ValueError):
+        parse_target_arg("race 3:00:99")
+
+
+def test_resolve_log_date() -> None:
+    from datetime import date
+
+    today = date(2026, 7, 15)
+    assert resolve_log_date("2026-07-28", today) == "2026-07-28"
+    assert resolve_log_date("yesterday", today) == "2026-07-14"
+    assert resolve_log_date("today", today) == "2026-07-15"
+    assert resolve_log_date("3 days ago", today) == "2026-07-12"
+    assert resolve_log_date("last saturday", today) == "2026-07-11"  # 2026-07-15 is a Wednesday
+    assert resolve_log_date(None, today) is None
+    assert resolve_log_date("not a date", today) is None
+
+
+# --- /profile parsing + snapshot -------------------------------------------
+
+
+def test_parse_profile_arg() -> None:
+    from bot import parse_profile_arg
+
+    updates = parse_profile_arg(["height=175", "age=28", "vo2=n/a"])
+    assert updates == {"height_cm": 175.0, "age": 28, "vo2_max": None}
+    updates = parse_profile_arg(["weight=56.5", "max_bpm=190", "resting_bpm=-"])
+    assert updates == {"weight_kg": 56.5, "max_bpm": 190, "resting_bpm": None}
+    with pytest.raises(ValueError):
+        parse_profile_arg(["shoe_size=42"])
+    with pytest.raises(ValueError):
+        parse_profile_arg(["age=250"])
+    with pytest.raises(ValueError):
+        parse_profile_arg(["age=abc"])
+
+
+def test_profile_snapshot_formats_na() -> None:
+    from bot import profile_snapshot
+
+    conn = init_db(":memory:")
+    conn.execute(
+        "INSERT INTO athlete_profile (user_id, height_cm, weight_kg, age, vo2_max, "
+        "max_bpm, resting_bpm, target_race, target_pace) "
+        "VALUES (1, 175, 55.0, 28, NULL, 190, 55, 'SELMAR Half Marathon', '7:06 min/km')"
+    )
+    conn.commit()
+    snapshot = profile_snapshot(conn, 1)
+    assert "175 cm" in snapshot
+    assert "VO2 max n/a" in snapshot
+    assert "190 bpm" in snapshot
+    assert "SELMAR Half Marathon" in snapshot
+    assert "No profile data" in profile_snapshot(conn, 99)
+
+
+def test_profile_columns_exist_after_migration() -> None:
+    conn = init_db(":memory:")
+    columns = {
+        r["name"]
+        for r in conn.execute("PRAGMA table_info(athlete_profile)")
+    }
+    for expected in ("age", "vo2_max", "max_bpm", "resting_bpm"):
+        assert expected in columns

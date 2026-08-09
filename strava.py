@@ -273,7 +273,7 @@ async def process_screenshot(
 def confirm_draft(conn, read: StravaRead, *, user_id: int, caption: str = "") -> int:
     """User confirmed — store as verified=1. Returns the log id."""
     fields = read.fields
-    return save_log(
+    log_id = save_log(
         conn,
         date=fields.date or time.strftime("%Y-%m-%d"),
         user_id=user_id,
@@ -288,3 +288,17 @@ def confirm_draft(conn, read: StravaRead, *, user_id: int, caption: str = "") ->
         prompt_version="strava-v1",
         raw_payload=read.ocr_text[:2000],
     )
+    # Verified efforts feed the prediction engine's anchors (best-effort
+    # selection + exponent refit). Code-computed values only.
+    if fields.distance_km and fields.moving_time_min:
+        conn.execute(
+            "INSERT INTO performance_anchors (date, distance_km, time_sec, source, verified) "
+            "VALUES (?, ?, ?, 'screenshot', 1)",
+            (
+                fields.date or time.strftime("%Y-%m-%d"),
+                fields.distance_km,
+                int(round(fields.moving_time_min * 60)),
+            ),
+        )
+        conn.commit()
+    return log_id

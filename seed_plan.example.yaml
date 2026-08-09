@@ -1,0 +1,40 @@
+# Template — copy to seed_plan.yaml (gitignored) and fill with YOUR event.
+# Run: python seed_plan.py seed_plan.yaml
+# Idempotent: re-running skips dates already in the calendar.
+
+phases:
+  - name: base
+    start: "2026-01-01"
+    end: "2026-07-26"
+    focus: "easy miles, strength, heat adaptation"
+    volume_range: "15-20 km/week"
+  - name: build
+    start: "2026-07-27"
+    end: "2026-10-25"
+    focus: "build + quality sessions"
+    volume_range: "25-31 km/week"
+  - name: taper
+    start: "2026-10-26"
+    end: "2026-11-01"
+    focus: "reduce volume, stay fresh"
+    volume_range: "13-16 km/week"
+
+workouts:
+  - date: "2026-07-28"
+    day_type: tuesday
+    session_type: easy_run
+    description: "4 km easy"
+    prescribed_km: 4.0
+    target_pace: "7:45 min/km"
+  - date: "2026-07-30"
+    day_type: thursday
+    session_type: easy_run
+    description: "5 km easy"
+    prescribed_km: 5.0
+    target_pace: "7:45 min/km"
+  - date: "2026-08-01"
+    day_type: saturday
+    session_type: long_run
+    description: "8 km long run"
+    prescribed_km: 8.0
+    target_pace: "8:00 min/km"
