@@ -104,7 +104,10 @@ async def test_handle_text_routine_log(monkeypatch) -> None:
     client.queue_chat("draft")
     client.queue_chat("draft")
     client.queue_chat("Nice easy 5k! Legs feeling fresh.")
-    client.queue_json({"rpe": 6, "session_type": "easy_run", "distance_km": 5.0, "completed": True})
+    client.queue_json(
+        {"rpe": 6, "session_type": "easy_run", "distance_km": 5.0,
+         "moving_time_min": 25.0, "completed": True}
+    )
 
     message = FakeMessage(text="easy 5k done, RPE 6")
     update = FakeUpdate(message)
