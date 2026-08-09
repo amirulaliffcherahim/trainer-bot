@@ -21,6 +21,7 @@ import asyncio
 import logging
 import time
 from datetime import date
+from pathlib import Path
 
 from telegram import InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -560,9 +561,15 @@ def auto_seed(conn, *, kb_root: Path | None = None, embedder=None) -> None:
     ingest_kb(conn, embedder or _get_embedder(), kb_root)
 
 
-def build_application(settings: Settings, *, auto_seed: bool = True) -> Application:
+def build_application(settings: Settings, *, auto_seed_kb: bool = True) -> Application:
+    """Wire handlers, jobs, and cold-start KB seeding.
+
+    Param named auto_seed_kb (not auto_seed) — the latter would shadow the
+    auto_seed() function in this module (TypeError: 'bool' object is not
+    callable).
+    """
     conn = db.init_db(settings.db_path)
-    if auto_seed:
+    if auto_seed_kb:
         auto_seed(conn)
     client = LLMClient(
         api_key=settings.deepseek_api_key,

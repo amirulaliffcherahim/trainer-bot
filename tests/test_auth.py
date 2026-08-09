@@ -76,7 +76,7 @@ def test_callback_data_under_64_bytes() -> None:
 
 def test_build_application_registers_handlers() -> None:
     conn = init_db(":memory:")
-    app = build_application(_settings(db_path=":memory:"), auto_seed=False)
+    app = build_application(_settings(db_path=":memory:"), auto_seed_kb=False)
     names = [handler.callback.__name__ for handler in app.handlers[0]]
     for expected in (
         "cmd_start", "cmd_today", "cmd_summary", "cmd_log", "cmd_weight",
@@ -102,3 +102,16 @@ def test_auto_seed_ingests_kb_when_empty(tmp_path) -> None:
     # Second call is a no-op.
     auto_seed(conn, kb_root=tmp_path, embedder=TfEmbedder())
     assert conn.execute("SELECT COUNT(*) AS n FROM kb_chunks").fetchone()["n"] == count
+
+
+def test_build_application_auto_seed_runs_without_crash(monkeypatch) -> None:
+    """Regression: the auto_seed parameter name must not shadow the
+    auto_seed() function (TypeError: 'bool' object is not callable)."""
+    import bot as bot_module
+    from retrieval import TfEmbedder
+
+    monkeypatch.setattr(bot_module, "_get_embedder", lambda: TfEmbedder())
+    app = build_application(_settings(db_path=":memory:"))  # auto_seed_kb=True
+    conn = app.bot_data["conn"]
+    count = conn.execute("SELECT COUNT(*) AS n FROM kb_chunks").fetchone()["n"]
+    assert count >= 1
