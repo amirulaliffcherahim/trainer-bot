@@ -44,6 +44,7 @@ import ocr
 import retrieval
 import scheduler
 import strava
+import strava_api
 import validate
 import workouts
 from config import Settings
@@ -794,6 +795,49 @@ def handle_date_query(text: str, conn, user_id: int, today: date) -> str | None:
     return "\n".join(lines)
 
 
+async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    settings: Settings = context.bot_data["settings"]
+    if not _gate(update, settings):
+        return
+    conn = context.bot_data["conn"]
+    user_id = update.effective_user.id
+    if not (settings.strava_client_id and settings.strava_client_secret and settings.strava_refresh_token):
+        await update.message.reply_text(
+            "Strava isn't connected yet. One-time setup:\n"
+            "1. App: https://www.strava.com/settings/api\n"
+            "2. On the server: python3 strava_auth.py <client_id> <client_secret>\n"
+            "3. Put the three STRAVA_* values in .env and restart."
+        )
+        return
+    placeholder = await update.message.reply_text("pulling your Strava, one sec…")
+    try:
+        client = strava_api.StravaClient(
+            settings.strava_client_id,
+            settings.strava_client_secret,
+            settings.strava_refresh_token,
+            conn=conn,
+        )
+        since = strava_api.last_sync_epoch(conn)
+        result = strava_api.sync_activities(
+            conn, client, user_id=user_id, since_epoch=since
+        )
+    except (strava_api.StravaError, Exception) as exc:  # noqa: BLE001
+        log.warning("strava sync failed: %s", exc)
+        await placeholder.edit_text(
+            f"Couldn't reach Strava ({exc}). Check the STRAVA_* values and try again."
+        )
+        return
+    if result["added"]:
+        await placeholder.edit_text(
+            f"Synced {result['added']} new run{'s' if result['added'] != 1 else ''} "
+            f"({result['skipped']} already imported). All verified — no screenshots needed."
+        )
+    else:
+        await placeholder.edit_text(
+            f"Nothing new since the last sync ({result['skipped']} already imported)."
+        )
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.bot_data["settings"]
     if not _gate(update, settings):
@@ -1130,6 +1174,7 @@ def build_application(settings: Settings, *, auto_seed_kb: bool = True) -> Appli
     app.add_handler(CommandHandler("target", cmd_target))
     app.add_handler(CommandHandler("profile", cmd_profile))
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("sync", cmd_sync))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CallbackQueryHandler(handle_callback))

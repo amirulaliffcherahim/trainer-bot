@@ -32,6 +32,9 @@ class Settings(BaseModel):
     log_level: str = "INFO"
     db_path: str = "trainer_data.db"
     run_remind_time: str = "17:30"
+    strava_client_id: str | None = None
+    strava_client_secret: str | None = None
+    strava_refresh_token: str | None = None
 
     @field_validator("allowed_user_ids", mode="before")
     @classmethod
@@ -83,6 +86,9 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
             log_level=merged.get("LOG_LEVEL", "INFO"),
             db_path=merged.get("DB_PATH", "trainer_data.db"),
             run_remind_time=merged.get("RUN_REMIND_TIME", "17:30"),
+            strava_client_id=merged.get("STRAVA_CLIENT_ID") or None,
+            strava_client_secret=merged.get("STRAVA_CLIENT_SECRET") or None,
+            strava_refresh_token=merged.get("STRAVA_REFRESH_TOKEN") or None,
         )
     except ValueError as exc:
         raise ConfigError(f"Invalid configuration: {exc}") from exc
