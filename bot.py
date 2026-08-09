@@ -744,7 +744,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             retrieval_fn=retrieval_fn,
             profile_str=profile_snapshot(conn, user_id),
             explain=bool(EXPLAIN_RE.search(text)),
-            knowledge_seeking=is_knowledge_seeking(text),
+            knowledge_seeking=validate.is_knowledge_seeking(text),
         )
     except AllModelsFailed:
         await placeholder.edit_text(
@@ -994,7 +994,22 @@ def build_application(settings: Settings, *, auto_seed_kb: bool = True) -> Appli
     app.add_handler(CallbackQueryHandler(handle_callback))
     scheduler.register_jobs(app)
     app.post_init = _set_commands
+    app.add_error_handler(_on_error)
     return app
+
+
+async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Last-resort handler: log the exception, tell the user, never crash
+    a conversation silently."""
+    log.exception("handler error: %s", getattr(context, "error", None))
+    try:
+        message = getattr(update, "effective_message", None)
+        if message is not None:
+            await message.reply_text(
+                "my bad, glitched for a sec — say that again?"
+            )
+    except Exception:  # noqa: BLE001 — never let the error handler itself crash
+        pass
 
 
 def main() -> None:
