@@ -21,7 +21,11 @@ def test_loads_valid_env() -> None:
     assert s.deepseek_base_url == "https://api.deepseek.com"
 
 
-def test_missing_vars_fail_fast() -> None:
+def test_missing_vars_fail_fast(monkeypatch) -> None:
+    # Hermetic: the host may have .env loaded into the environment (a real
+    # deploy box always will) — remove the vars so the failure path is real.
+    for name in ("TELEGRAM_BOT_TOKEN", "DEEPSEEK_API_KEY", "ALLOWED_USER_IDS"):
+        monkeypatch.delenv(name, raising=False)
     with pytest.raises(ConfigError) as exc:
         load_settings({})
     msg = str(exc.value)

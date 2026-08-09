@@ -166,6 +166,14 @@ pm2 logs trainer-bot
 # 0 3 * * * cd /path/to/trainer-bot && .venv/bin/python backup.py trainer_data.db backups/ >> logs/backup.log 2>&1
 ```
 
+Verification note: the test suite needs the dev requirements and the venv's
+pytest (the system pytest lacks the asyncio plugin):
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pytest tests/ -q        # not bare `pytest`
+```
+
 The knowledge base auto-seeds on first start; your training calendar is
 yours to provide (seed `training_phases` + `workout_plan` for your own
 event — `/today` degrades gracefully until then).
