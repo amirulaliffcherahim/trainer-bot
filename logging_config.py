@@ -44,7 +44,13 @@ class RedactingFilter(logging.Filter):
 
 
 def setup_logging(level: str = "INFO", log_dir: str = "logs") -> logging.Logger:
-    """Configure root logger: console + rotating file, both redacted."""
+    """Configure root logger: console + rotating file, both redacted.
+
+    Third-party libraries (httpx, huggingface, ...) are noisy at INFO —
+    they drop to WARNING so the bot's own lines stay readable.
+    """
+    for noisy in ("httpx", "huggingface_hub", "sentence_transformers", "urllib3", "apscheduler"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     root = logging.getLogger()
     root.setLevel(level.upper())
     if not root.handlers:
