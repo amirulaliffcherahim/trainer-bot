@@ -4,7 +4,6 @@ application wiring, /target parsing (no network)."""
 import pytest
 
 from bot import (
-    Debouncer,
     DraftStore,
     authorize,
     build_application,
@@ -32,15 +31,6 @@ def test_authorize_allows_only_allowlisted() -> None:
     assert authorize(123456789, ALLOWED)
     assert not authorize(999, ALLOWED)
     assert not authorize(None, ALLOWED)
-
-
-def test_debouncer_one_per_second() -> None:
-    debouncer = Debouncer(min_interval=1.0)
-    now = 1000.0
-    assert debouncer.allow(1, now=now)
-    assert not debouncer.allow(1, now=now + 0.5)
-    assert debouncer.allow(1, now=now + 1.1)  # interval passed
-    assert debouncer.allow(2, now=now + 0.1)  # different user unaffected
 
 
 def test_draft_store_roundtrip_and_ttl() -> None:

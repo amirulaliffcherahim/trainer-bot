@@ -13,19 +13,25 @@ from db import init_db
 
 
 class FakeMessage:
-    def __init__(self, text: str | None = None, caption: str | None = None):
+    def __init__(self, text: str | None = None, caption: str | None = None, events: list | None = None):
         self.text = text
         self.caption = caption
         self.photo = []
         self.sent: list[str] = []
         self.edited: list[str] = []
+        self.events = events
 
     async def reply_text(self, text, **kwargs):
         self.sent.append(text)
+        if self.events is not None:
+            self.events.append(f"reply:{text[:14]}")
         return self
 
     async def edit_text(self, text, **kwargs):
         self.edited.append(text)
+        if self.events is not None:
+            self.events.append(f"edit:{text[:14]}")
+        return self
 
 
 class FakeUser:
@@ -86,8 +92,7 @@ def _make_env(monkeypatch, tmp_path):
     from retrieval import TfEmbedder
 
     monkeypatch.setattr(bot_module, "_get_embedder", lambda: TfEmbedder())
-    # Module-level debouncer carries state across tests — fresh per test.
-    monkeypatch.setattr(bot_module, "DEBOUNCER", bot_module.Debouncer())
+    bot_module.reset_queues()
     conn = init_db(":memory:")
     client = FakeLLM()
     return conn, client
@@ -112,6 +117,7 @@ async def test_handle_text_routine_log(monkeypatch) -> None:
     message = FakeMessage(text="easy 5k done, RPE 6")
     update = FakeUpdate(message)
     await bot_module.handle_text(update, FakeContext(conn, client))
+    await bot_module.wait_user_idle(1)
 
     assert len(message.sent) == 1  # prelude
     assert len(message.edited) == 1  # final answer replaces it
@@ -139,6 +145,7 @@ async def test_handle_text_profile_chat(monkeypatch) -> None:
     message = FakeMessage(text="my height is 175")
     update = FakeUpdate(message)
     await bot_module.handle_text(update, FakeContext(conn, client))
+    await bot_module.wait_user_idle(1)
 
     assert len(message.edited) == 1
     assert "Got it" in message.edited[0]
@@ -154,7 +161,9 @@ async def test_handle_text_red_flag_skips_pipeline(monkeypatch) -> None:
     conn, client = _make_env(monkeypatch, None)
     message = FakeMessage(text="chest pain during my run")
     await bot_module.handle_text(FakeUpdate(message), FakeContext(conn, client))
-    assert message.sent and "medical" in message.sent[0].lower()
+    await bot_module.wait_user_idle(1)
+    assert len(message.edited) == 1  # prelude replaced by the canned response
+    assert "medical" in message.edited[0].lower()
     assert client.chat_calls == 0
     assert client.json_calls == 0
 
@@ -169,5 +178,38 @@ async def test_handle_text_all_models_down(monkeypatch) -> None:
         client.queue_chat(AllModelsFailed("down"))
     message = FakeMessage(text="how's my week looking")
     await bot_module.handle_text(FakeUpdate(message), FakeContext(conn, client))
+    await bot_module.wait_user_idle(1)
     assert len(message.edited) == 1
     assert "down for a sec" in message.edited[0]
+
+
+@pytest.mark.asyncio
+async def test_messages_processed_in_fifo_order(monkeypatch) -> None:
+    """Two rapid messages: both preludes land instantly, answers edit in
+    arrival order — nothing skipped, never interleaved."""
+    conn, client = _make_env(monkeypatch, None)
+    for _ in range(5):
+        client.queue_chat("draft")
+    client.queue_chat("First answer.")
+    for _ in range(5):
+        client.queue_chat("draft")
+    client.queue_chat("Second answer.")
+    client.queue_json({})
+    client.queue_json({})
+
+    events: list[str] = []
+    m1 = FakeMessage(text="first message", events=events)
+    m2 = FakeMessage(text="second message", events=events)
+    ctx = FakeContext(conn, client)
+    await bot_module.handle_text(FakeUpdate(m1), ctx)
+    await bot_module.handle_text(FakeUpdate(m2), ctx)
+    await bot_module.wait_user_idle(1)
+
+    assert events[0].startswith("reply:")  # prelude 1
+    assert events[1].startswith("reply:")  # prelude 2 — instant, no waiting
+    assert "First answer" in m1.edited[0]
+    assert "Second answer" in m2.edited[0]
+    # strict FIFO: prelude2 < edit1 < edit2
+    assert events.index(next(e for e in events if "First" in e)) < events.index(
+        next(e for e in events if "Second" in e)
+    )

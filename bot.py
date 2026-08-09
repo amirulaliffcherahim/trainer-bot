@@ -81,22 +81,6 @@ def authorize(user_id: int | None, allowed: set[int]) -> bool:
     return user_id is not None and user_id in allowed
 
 
-class Debouncer:
-    """1 message per second per user."""
-
-    def __init__(self, min_interval: float = 1.0) -> None:
-        self.min_interval = min_interval
-        self._last: dict[int, float] = {}
-
-    def allow(self, user_id: int, now: float | None = None) -> bool:
-        now = now if now is not None else time.monotonic()
-        last = self._last.get(user_id)
-        if last is not None and now - last < self.min_interval:
-            return False
-        self._last[user_id] = now
-        return True
-
-
 class DraftStore:
     """Pending Strava confirmations, keyed by short draft ids + per-user
     fix-state. TTL keeps stale drafts from piling up."""
@@ -134,18 +118,73 @@ class DraftStore:
         return self._fix.pop(user_id, None)
 
 
-DEBOUNCER = Debouncer()
 DRAFTS = DraftStore()
 
 
+# Per-user FIFO queues — every message is processed in arrival order, none
+# skipped, responses never overlap. The prelude is sent immediately on
+# enqueue; the queued task edits it with the real answer when its turn
+# comes.
+_user_queues: dict[int, asyncio.Queue] = {}
+_user_workers: dict[int, asyncio.Task] = {}
+_inflight: dict[int, int] = {}  # per-user processing counter (tests wait on it)
+
+
+def reset_queues() -> None:
+    """Test helper — drop queue state between tests."""
+    for task in _user_workers.values():
+        task.cancel()
+    _user_queues.clear()
+    _user_workers.clear()
+    _inflight.clear()
+
+
+async def wait_user_idle(user_id: int, timeout: float = 10.0) -> None:
+    """Test helper — wait until the user's queue is empty AND the in-flight
+    item finished (covers the window before the worker's first dequeue)."""
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    queue = _user_queues.get(user_id)
+    while _time.monotonic() < deadline:
+        queue = _user_queues.get(user_id, queue)
+        if queue is not None and queue.empty() and _inflight.get(user_id, 0) == 0:
+            return
+        await asyncio.sleep(0.01)
+
+
+async def _worker(user_id: int) -> None:
+    queue = _user_queues.get(user_id)
+    if queue is None:
+        return
+    while True:
+        coro = await queue.get()
+        _inflight[user_id] = _inflight.get(user_id, 0) + 1
+        try:
+            await coro
+        except Exception:  # noqa: BLE001 — never let one message kill the queue
+            log.exception("queued message processing failed")
+        finally:
+            _inflight[user_id] -= 1
+            queue.task_done()
+
+
+def _enqueue(user_id: int, coro) -> None:
+    queue = _user_queues.get(user_id)
+    if queue is None:
+        queue = asyncio.Queue()
+        _user_queues[user_id] = queue
+    queue.put_nowait(coro)
+    worker = _user_workers.get(user_id)
+    if worker is None or worker.done():
+        _user_workers[user_id] = asyncio.create_task(_worker(user_id))
+
+
 def _gate(update: Update, settings: Settings) -> bool:
-    """Silent reject for strangers; debounce for everyone. False → stop."""
+    """The allowlist gate — THE security boundary. No debounce: every
+    allowed message is queued in order, never dropped."""
     user = update.effective_user
-    if not authorize(user.id if user else None, settings.allowed_user_ids):
-        return False
-    if user and not DEBOUNCER.allow(user.id):
-        return False
-    return True
+    return authorize(user.id if user else None, settings.allowed_user_ids)
 
 
 # --- commands ------------------------------------------------------------
@@ -693,27 +732,33 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     settings: Settings = context.bot_data["settings"]
     if not _gate(update, settings):
         return
-    conn = context.bot_data["conn"]
     user_id = update.effective_user.id
     text = update.message.text.strip()
+
+    # Prelude immediately — the queued task edits it when its turn comes.
+    placeholder = await update.message.reply_text(coach_prelude())
+    _enqueue(user_id, _process_text(update, context, placeholder, text))
+
+
+async def _process_text(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, placeholder, text: str
+) -> None:
+    conn = context.bot_data["conn"]
+    user_id = update.effective_user.id
 
     # Pending Strava fix from an echo-confirm?
     pending = DRAFTS.pop_fix(user_id)
     if pending:
-        await _apply_fix(update, context, pending, text)
+        await _apply_fix(update, context, pending, text, placeholder)
         return
 
     # 1. Guardrails FIRST — red flags bypass the AI entirely.
     result = guardrails.evaluate_guardrails(text)
     if result.triggered:
-        await update.message.reply_text(result.response)
+        await placeholder.edit_text(result.response)
         return
 
     client: LLMClient = context.bot_data["llm_client"]
-
-    # Coach interjection while the brain works — edited away when the real
-    # reply lands, so the chat never shows two messages.
-    placeholder = await update.message.reply_text(coach_prelude())
 
     # 1b. Conversational profile intake — best-effort, silent on failure.
     profile_ack = None
@@ -807,6 +852,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     settings: Settings = context.bot_data["settings"]
     if not _gate(update, settings):
         return
+    user_id = update.effective_user.id
+    placeholder = await update.message.reply_text(
+        "one sec, squinting at that screenshot…"
+    )
+    _enqueue(user_id, _process_photo(update, context, placeholder))
+
+
+async def _process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE, placeholder) -> None:
     conn = context.bot_data["conn"]
     user_id = update.effective_user.id
     caption = update.message.caption or ""
@@ -814,12 +867,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # 1. Guardrails on the caption too.
     result = guardrails.evaluate_guardrails(caption)
     if result.triggered:
-        await update.message.reply_text(result.response)
+        await placeholder.edit_text(result.response)
         return
 
-    placeholder = await update.message.reply_text(
-        "one sec, squinting at that screenshot…"
-    )
+    settings: Settings = context.bot_data["settings"]
 
     try:
         photo = update.message.photo[-1]
@@ -862,12 +913,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def _apply_fix(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, pending: tuple[str, str], value: str
+    update: Update, context: ContextTypes.DEFAULT_TYPE, pending: tuple[str, str], value: str, placeholder=None
 ) -> None:
     draft_id, field = pending
     read = DRAFTS.get(draft_id)
     if read is None:
-        await update.message.reply_text("That confirmation expired — send the screenshot again.")
+        reply = placeholder.edit_text if placeholder else update.message.reply_text
+        await reply("That confirmation expired — send the screenshot again.")
         return
     try:
         if field == "distance_km":
