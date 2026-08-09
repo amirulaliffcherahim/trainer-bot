@@ -43,6 +43,7 @@ import ocr
 import retrieval
 import scheduler
 import strava
+import validate
 import workouts
 from config import Settings
 from llm_client import AllModelsFailed, LLMClient
@@ -733,6 +734,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             retrieval_fn=retrieval_fn,
             profile_str=profile_snapshot(conn, user_id),
             explain=bool(EXPLAIN_RE.search(text)),
+            knowledge_seeking=is_knowledge_seeking(text),
         )
     except AllModelsFailed:
         await update.message.reply_text(

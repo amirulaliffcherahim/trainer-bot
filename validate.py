@@ -34,6 +34,11 @@ NO_DATA_PHRASES = (
     "no information on",
     "not in my knowledge base",
 )
+# Question-ish messages seek knowledge; routine logs ("easy 5k done") don't.
+QUESTION_RE = re.compile(
+    r"\b(why|what|how|when|which|should|can|explain|kenapa|macam mana|bagaimana|recommend|suggest|is it|does)\b",
+    re.IGNORECASE,
+)
 _NUM_RE = re.compile(r"\d+(?:\.\d+)?")
 _NEAR = 0.05  # within 5% of a fact → must match
 _EQUAL = 0.005  # within 0.5% counts as matching
@@ -74,14 +79,25 @@ def _number_problems(reply: str, facts: FactsBlock) -> list[str]:
     return problems
 
 
+def is_knowledge_seeking(text: str) -> bool:
+    """True for question-like messages — the only ones the 'no data'
+    honesty rule applies to. Routine logs and acknowledgments are exempt."""
+    return "?" in text or bool(QUESTION_RE.search(text))
+
+
 def validate_reply(
     reply: str,
     *,
     facts_block: FactsBlock,
     drafts: dict,
+    knowledge_seeking: bool = True,
 ) -> ValidationResult:
     """Validate a synthesized reply. `drafts` maps persona key → draft object
     exposing `.kb_section` ("" when nothing was retrieved for that persona).
+
+    knowledge_seeking=False (routine log/ack): the 'no data' requirement is
+    skipped — a reply to "easy 5k done" must not be forced to say it has no
+    data. Citations are still required whenever KB was actually used.
     """
     problems: list[str] = []
 
@@ -97,7 +113,7 @@ def validate_reply(
         problems.append(
             "drafts used knowledge-base chunks but the reply cites no [SOURCE: ...]"
         )
-    if not had_kb and not has_no_data:
+    if knowledge_seeking and not had_kb and not has_no_data:
         problems.append(
             "no knowledge-base match, but the reply does not state it has no data"
         )

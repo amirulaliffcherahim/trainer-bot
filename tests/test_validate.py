@@ -1,7 +1,7 @@
 """validate.py tests — citation honesty + facts-number consistency."""
 
 from facts import FactsBlock
-from validate import validate_reply
+from validate import is_knowledge_seeking, validate_reply
 
 FACTS = FactsBlock(
     avg_rpe_7d=6.3,
@@ -44,9 +44,30 @@ def test_no_kb_with_no_data_statement_valid() -> None:
 
 
 def test_no_kb_without_no_data_rejected() -> None:
-    result = validate_reply("Rest today.", facts_block=FACTS, drafts=_drafts(False))
+    result = validate_reply(
+        "Rest today.", facts_block=FACTS, drafts=_drafts(False), knowledge_seeking=True
+    )
     assert not result.valid
     assert any("no data" in p for p in result.problems)
+
+
+def test_no_kb_ok_for_routine_log() -> None:
+    """Routine messages ('easy 5k done') are not forced to say 'no data'."""
+    result = validate_reply(
+        "Nice easy 5k! Legs feeling fresh.",
+        facts_block=FACTS,
+        drafts=_drafts(False),
+        knowledge_seeking=False,
+    )
+    assert result.valid, result.problems
+
+
+def test_is_knowledge_seeking() -> None:
+    assert is_knowledge_seeking("why do I need a taper?")
+    assert is_knowledge_seeking("what pace should I run")
+    assert is_knowledge_seeking("kenapa kena rest")
+    assert not is_knowledge_seeking("easy 5k done, RPE 6")
+    assert not is_knowledge_seeking("weighed 55.4 today")
 
 
 def test_exact_fact_number_valid() -> None:

@@ -200,9 +200,11 @@ async def generate_reply(
     retrieval_fn,
     profile_str: str = "",
     explain: bool = False,
+    knowledge_seeking: bool = True,
 ) -> tuple[str, dict[str, PersonaDraft]]:
     """Full synthesis pipeline: persona passes → editor → validation, with
-    one corrective editor pass on validation failure. explain=True deep-dives."""
+    one corrective editor pass on validation failure. explain=True deep-dives.
+    knowledge_seeking=False skips the 'no data' requirement (routine logs)."""
     drafts = await run_persona_passes(
         client,
         personas,
@@ -219,7 +221,9 @@ async def generate_reply(
         client, drafts, facts_block_str=facts_str, explain=explain
     )
 
-    result = validate_reply(answer, facts_block=facts, drafts=drafts)
+    result = validate_reply(
+        answer, facts_block=facts, drafts=drafts, knowledge_seeking=knowledge_seeking
+    )
     if not result.valid:
         log.info("Synthesis failed validation: %s", result.problems)
         answer = await _synthesize_corrective(

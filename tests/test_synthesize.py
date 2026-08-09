@@ -159,6 +159,19 @@ async def test_generate_reply_corrective_loop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_generate_reply_routine_log_skips_no_data_rule() -> None:
+    """Routine logs pass validation on the first editor pass — no wasted
+    corrective call (the bug seen in production logs)."""
+    client = FakeLLMClient(["draft"] * 4 + ["Nice easy 5k! Legs feeling fresh."])
+    answer, _ = await generate_reply(
+        client, PERSONAS, facts=FACTS, user_message="easy 5k done",
+        retrieval_fn=lambda k, m: "", knowledge_seeking=False,
+    )
+    assert answer == "Nice easy 5k! Legs feeling fresh."
+    assert len(client.calls) == 5  # 4 persona + 1 editor — no corrective pass
+
+
+@pytest.mark.asyncio
 async def test_all_passes_fail_propagates() -> None:
     client = FakeLLMClient([AllModelsFailed("down")] * 4)
     with pytest.raises(AllModelsFailed):
