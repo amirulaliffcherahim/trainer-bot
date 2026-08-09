@@ -293,7 +293,7 @@ async def suggestion_job(context) -> None:
     for push in pushes:
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"{push.message}\n\n👉 {push.action}: {push.command}",
+            text=f"{push.message}\n\n{push.action}? Just say yes or tap {push.command}.",
         )
 
 

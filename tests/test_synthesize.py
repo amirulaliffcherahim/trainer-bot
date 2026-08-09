@@ -100,9 +100,10 @@ async def test_editor_merges_with_hierarchy_and_citations() -> None:
     system = editor["messages"][0]["content"]
     assert "Conflict hierarchy" in system
     assert "Physiotherapy Trainer" in system  # authority listed first
-    assert "surfaced explicitly" in system
+    assert "owned in first" in system
     assert "[SOURCE:" in system  # citation preservation instructed
-    assert "knowledgeable mate" in system  # chill tone directive
+    assert "athlete's coach" in system  # single-voice directive
+    assert "NEVER attribute" in system  # no persona names in the reply
     user = editor["messages"][1]["content"]
     assert "physio" in user and "runner" in user and "calisthenics" in user and "mobility" in user
     assert "CURRENT STATE" in user
@@ -131,7 +132,7 @@ async def test_no_explain_mode_by_default() -> None:
     await synthesize(client, drafts, facts_block_str="## Current state\n- x")
     system = client.calls[4]["messages"][0]["content"]
     assert "EXPLAIN MODE" not in system
-    assert "Depth is served on request" in system
+    assert "start with the" in system
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 import time
 from datetime import date, timedelta
@@ -156,14 +157,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     phase = workouts.get_phase(context.bot_data["conn"], date.today().isoformat())
     intro = (
-        "🏃 I'm your trainer — four experts in one: runner coach, calisthenics "
-        "coach, mobility coach, physio.\n\n"
-        "Log runs with text (\"easy 5km, RPE 6\") or Strava screenshots, ask "
-        "anything, and I'll answer with all four perspectives.\n\n"
-        "Commands: /today /summary /log /weight /phase /personas"
+        "Hey! I'm your coach — running, strength, mobility, and keeping you "
+        "in one piece. Four perspectives, one brain, zero lecture."
     )
     if phase:
-        intro += f"\n\n📅 Current phase: {phase['phase_name']}"
+        intro += f"\n\nRight now you're in {phase['phase_name']}."
+    intro += (
+        "\n\nJust chat like you would with any coach: log a run "
+        "(\"easy 5k, RPE 6\"), send a Strava screenshot, ask why anything "
+        "works. If you ever want shortcuts, /help has them."
+    )
     await update.message.reply_text(intro)
 
 
@@ -387,7 +390,7 @@ def apply_profile_extraction(
         parts.append(f"resting HR {profile.resting_bpm} bpm")
     if target_race:
         parts.append(f"target {target_race} @ {pace_text or 'see /target'}")
-    return "📝 Noted: " + ", ".join(parts) if parts else None
+    return "Got it — " + ", ".join(parts) if parts else None
 
 
 def profile_snapshot(conn, user_id: int) -> str:
@@ -666,6 +669,26 @@ async def _set_commands(app) -> None:
     )
 
 
+def merge_ack(answer: str, ack: str | None) -> str:
+    """Fold the profile acknowledgment into the main reply — one message,
+    never two."""
+    return f"{ack}\n\n{answer}" if ack else answer
+
+
+COACH_PRELUDE = (
+    "hmm, gimme a bit — coach brain warming up…",
+    "one sec, chugging my water first…",
+    "hold on, let me look at your numbers…",
+    "ok gimme a second, thinking out loud…",
+    "one moment, pulling my notes on this…",
+    "hmm… lemme think about this one…",
+)
+
+
+def coach_prelude() -> str:
+    return random.choice(COACH_PRELUDE)
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.bot_data["settings"]
     if not _gate(update, settings):
@@ -688,10 +711,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     client: LLMClient = context.bot_data["llm_client"]
 
-    # 1b. Conversational profile intake — "my height is 175, vo2 i don't
-    # know" updates the profile without commands. Best-effort: failure is
-    # silent, and the training pipeline always continues. Commands remain
-    # as shortcuts (/profile /target /weight).
+    # Coach interjection while the brain works — edited away when the real
+    # reply lands, so the chat never shows two messages.
+    placeholder = await update.message.reply_text(coach_prelude())
+
+    # 1b. Conversational profile intake — best-effort, silent on failure.
     profile_ack = None
     if PROFILE_KEYWORD_RE.search(text) and re.search(r"\d", text):
         try:
@@ -702,21 +726,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except (extract.ExtractionFailed, AllModelsFailed):
             pass  # profile pass is best-effort
 
-    # 2. Structured extraction (one corrective re-prompt inside).
-    try:
-        extracted = await extract.extract_log(client, text)
-    except extract.ExtractionFailed:
-        await update.message.reply_text(
-            "I couldn't parse that. Try: \"easy 5km, RPE 6, legs tired\"."
-        )
-        return
-    except AllModelsFailed:
-        await update.message.reply_text(
-            "⚠️ AI unavailable right now. Try again in a minute."
-        )
-        return
-
-    # 3. Computed facts from real data (code, not AI).
+    # 2. Computed facts from real data (code, not AI).
     rows = db.get_recent_history(conn, user_id)
     fb = facts.compute_facts(rows, today=date.today())
     embedder = _get_embedder()
@@ -737,30 +747,41 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             knowledge_seeking=is_knowledge_seeking(text),
         )
     except AllModelsFailed:
-        await update.message.reply_text(
-            "⚠️ AI unavailable right now. Degraded mode: check /today and /summary."
+        await placeholder.edit_text(
+            "AI's down for a sec — try again in a minute."
         )
         return
 
-    await update.message.reply_text(answer)
-    if profile_ack:
-        await update.message.reply_text(profile_ack)
+    final = merge_ack(answer, profile_ack)
+    await placeholder.edit_text(final)
 
-    # 6. Store the log (structured values from extraction; never AI-derived pace).
-    # Backdating: the message may say WHEN it happened ("on 2026-07-28",
-    # "yesterday", "3 days ago") — resolved in code, never trusted raw.
+    # 3. Structured logging in the BACKGROUND — the reply never waits for it.
+    asyncio.create_task(_store_log_background(client, conn, user_id, text))
+
+
+async def _store_log_background(
+    client: LLMClient,
+    conn,
+    user_id: int,
+    text: str,
+) -> None:
+    """Background structured logging — never blocks the coaching reply.
+    Best-effort: failure drops quietly (the reply already happened)."""
+    try:
+        extracted = await extract.extract_log(client, text)
+    except (extract.ExtractionFailed, AllModelsFailed):
+        log.info("background extraction failed — message not structured")
+        return
     log_date = (
         resolve_log_date(extracted.date_raw, date.today()) or date.today().isoformat()
     )
-    # Trust-me text: user-typed distance + time = verified input → feeds
-    # stats AND the prediction anchors.
     trusted = bool(extracted.distance_km and extracted.moving_time_min)
     db.save_log(
         conn,
         date=log_date,
         user_id=user_id,
         user_input=text,
-        ai_response=answer,
+        ai_response="logged",
         rpe=extracted.rpe,
         fatigue_level=extracted.fatigue_level,
         weight_kg=extracted.weight_kg,
@@ -779,7 +800,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "VALUES (?, ?, ?, 'chat', 1)",
             (log_date, extracted.distance_km, int(round(extracted.moving_time_min * 60))),
         )
-        conn.commit()
+    conn.commit()
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -796,7 +817,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(result.response)
         return
 
-    await update.message.reply_text("🔍 Reading your screenshot…")
+    placeholder = await update.message.reply_text(
+        "one sec, squinting at that screenshot…"
+    )
 
     try:
         photo = update.message.photo[-1]
@@ -804,14 +827,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         image_bytes = bytes(await file.download_as_bytearray())
     except Exception as exc:  # noqa: BLE001 — Telegram errors surface as plain failure
         log.warning("photo download failed: %s", exc)
-        await update.message.reply_text("Couldn't download that image.")
+        await placeholder.edit_text("Couldn't download that image.")
         return
 
     ocr_text = await asyncio.to_thread(
         ocr.extract_text, image_bytes, vision_api_key=settings.vision_api_key
     )
     if not ocr_text.strip():
-        await update.message.reply_text(
+        await placeholder.edit_text(
             "No text found in that image. Send a clearer screenshot, or type "
             "distance and time manually."
         )
@@ -823,17 +846,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             client, conn, ocr_text, caption=caption
         )
     except strava.ParseFailed:
-        await update.message.reply_text(
+        await placeholder.edit_text(
             "Couldn't read the numbers. Please type distance and time manually, "
             "e.g. \"10.42 km, 72:38\"."
         )
         return
     except AllModelsFailed:
-        await update.message.reply_text("⚠️ AI unavailable — try again in a minute.")
+        await placeholder.edit_text("AI unavailable — try again in a minute.")
         return
 
     draft_id = DRAFTS.put(read)
-    await update.message.reply_text(
+    await placeholder.edit_text(
         strava.build_echo(read), reply_markup=strava.build_confirm_keyboard(draft_id)
     )
 

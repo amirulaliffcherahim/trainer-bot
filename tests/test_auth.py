@@ -267,6 +267,21 @@ def test_apply_profile_extraction_empty_is_noop() -> None:
     assert conn.execute("SELECT COUNT(*) AS n FROM athlete_profile").fetchone()["n"] == 0
 
 
+def test_merge_ack_and_prelude() -> None:
+    from bot import coach_prelude, merge_ack
+
+    assert merge_ack("answer", "Got it — height 175 cm") == "Got it — height 175 cm\n\nanswer"
+    assert merge_ack("answer", None) == "answer"
+    assert coach_prelude() in (
+        "hmm, gimme a bit — coach brain warming up…",
+        "one sec, chugging my water first…",
+        "hold on, let me look at your numbers…",
+        "ok gimme a second, thinking out loud…",
+        "one moment, pulling my notes on this…",
+        "hmm… lemme think about this one…",
+    )
+
+
 def test_explain_regex() -> None:
     from bot import EXPLAIN_RE
 

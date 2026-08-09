@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 
 from facts import FactsBlock, format_facts_block
@@ -33,6 +34,21 @@ log = logging.getLogger(__name__)
 
 PERSONA_TEMPERATURE = 0.3
 EDITOR_TEMPERATURE = 0.3
+
+_HEADER_RE = re.compile(r"^#{1,6}\s+.*$", re.MULTILINE)
+_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+_ITALIC_RE = re.compile(r"(?<!\*)\*([^*]+)\*(?!\*)")
+
+
+def polish_reply(text: str) -> str:
+    """Deterministic cleanup: strip markdown headers/bold/italics, collapse
+    whitespace. Keeps [SOURCE: ...] citations intact."""
+    out = _HEADER_RE.sub("", text)
+    out = _BOLD_RE.sub(r"\1", out)
+    out = _ITALIC_RE.sub(r"\1", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    return out.strip()
 
 EDITOR_SYSTEM_PROMPT = """\
 You are the EDITOR of a coaching panel for a half-marathon athlete. Four
@@ -46,11 +62,16 @@ Conflict hierarchy (highest authority first):
 4. Mobility Trainer — supplementary
 
 Rules:
-- Merge the drafts into ONE coherent reply written directly to the athlete.
+- Merge the drafts into ONE reply in the athlete's ear. The four experts
+  are your INTERNAL thinking — their knowledge becomes YOURS.
+- NEVER attribute advice to a persona: no "the physio says", no "the
+  runner coach recommends", no expert names in the reply. Say it as your
+  own call: "we're skipping the long run", "your quad needs a rest day",
+  "I'd drop the tempo this week".
 - When a higher-authority expert contradicts a lower one, the higher
-  authority wins — and the conflict MUST be surfaced explicitly in the reply
-  (e.g. "Physio rule: rest — skipping today's run is the right call"). Never
-  silently drop a contradiction.
+  authority wins — and the conflict MUST be surfaced and owned in first
+  person (e.g. "we're resting today — your quad wins over the mileage").
+  Never silently drop a contradiction; never name the expert.
 - Preserve every [SOURCE: ...] citation from the drafts that you use. Cite
   in the same form: [SOURCE: title].
 - Do not invent numbers. The CURRENT STATE block is ground truth — use its
@@ -59,11 +80,26 @@ Rules:
   that topic rather than improvising.
 - If a draft is marked [PASS FAILED], ignore it.
 
-Tone — write like a knowledgeable mate:
-- Warm, casual, direct. Short sentences. No corporate filler, no lecturing,
-  no emoji spam. The chill delivery never changes the numbers or the
-  safety rules.
-- Default: keep replies tight — a few lines. Depth is served on request.
+Tone — you are the athlete's coach:
+- Reply as ONE person in your own voice. Never mention personas, drafts,
+  commands, or that you are a bot or assistant. Never say "as your
+  trainer/coach" — just be it.
+- Talk like you know them: "you/we", short lines, match their energy.
+  Casual check-in → casual reply; grumble → empathy first, then the fix.
+- Warm, direct, human. No corporate filler, no lecturing, no emoji spam.
+  The chill delivery never changes the numbers or the safety rules.
+- When natural, end with ONE light follow-up question to keep the chat
+  going (at most one — never on safety-critical answers).
+
+Output format (non-negotiable):
+- Plain conversational paragraphs. NO markdown headers, NO bold or
+  italics, no code blocks.
+- Max ~3 short paragraphs; bullets only when listing 3+ items, as plain
+  dashes.
+- No filler openers ("Great question!", "That's a good point"), no
+  sign-offs, no "Sure!", no "Here's what I recommend:" — start with the
+  answer, the way a coach would say it out loud.
+- Keep [SOURCE: title] citations inline where you use them.
 - Output only the final reply, plain text, no preamble.
 """
 
@@ -220,16 +256,19 @@ async def generate_reply(
     answer = await synthesize(
         client, drafts, facts_block_str=facts_str, explain=explain
     )
+    answer = polish_reply(answer)
 
     result = validate_reply(
         answer, facts_block=facts, drafts=drafts, knowledge_seeking=knowledge_seeking
     )
     if not result.valid:
         log.info("Synthesis failed validation: %s", result.problems)
-        answer = await _synthesize_corrective(
-            client,
-            drafts,
-            facts_block_str=facts_str,
-            problems=result.problems,
+        answer = polish_reply(
+            await _synthesize_corrective(
+                client,
+                drafts,
+                facts_block_str=facts_str,
+                problems=result.problems,
+            )
         )
     return answer, drafts
