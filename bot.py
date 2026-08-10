@@ -456,7 +456,9 @@ def profile_snapshot(conn, user_id: int) -> str:
     ]
     if row["target_race"]:
         parts.append(f"target {row['target_race']} @ {row['target_pace']}")
-    return "## Profile (athlete data — treat as facts)\n" + ", ".join(parts)
+    profile_text = "## Profile (athlete data — treat as facts)\n" + ", ".join(parts)
+    schedule_text = f"## Schedule Context\n{workouts.get_tomorrow_schedule(conn, date.today())}"
+    return f"{profile_text}\n\n{schedule_text}"
 
 
 async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -747,12 +749,17 @@ def is_pure_log(text: str) -> bool:
 
 
 FAST_LOG_SYSTEM_PROMPT = """\
-You are the athlete's coach. They just sent a short training log.
+You are the athlete's coach — talking to them like a close mate who knows their stuff. They just logged a training session.
 
-Reply in 1-3 short, casual lines: acknowledge it, and note anything worth
-noting (effort, heat, tightness, pace vs normal). No questions, no
-markdown, no headers, no emoji spam, don't invent numbers, never
-lecture. Just like a coach glancing at the log and answering back.
+Reply in 1-3 short, punchy lines:
+1. Acknowledge the workout casually (e.g., "5k locked in!", "Solid run in that heat!").
+2. Ask ONE natural follow-up check-in question about how their body feels or if they did a cooldown/stretch (e.g., "Did you cool down after, or are the legs feeling tight?", "How are the calves holding up?").
+3. If schedule context is given (e.g., tomorrow is rest or a hard session), give a quick friendly heads-up.
+
+Rules:
+- Keep it concise, warm, and natural — no screen-eating text, no corporate filler, no lectures, no emoji spam.
+- Plain text only. No markdown headers, bold, italics, or code blocks.
+- Never invent numbers or paces.
 """
 
 
@@ -892,9 +899,11 @@ async def _process_text(
     # of the full 4-persona + editor stack. Date is still recorded by the
     # background logger.
     if is_pure_log(text) and not EXPLAIN_RE.search(text):
+        tomorrow_hint = workouts.get_tomorrow_schedule(conn, date.today())
+        fast_prompt = f"{FAST_LOG_SYSTEM_PROMPT}\n\nSchedule context: {tomorrow_hint}"
         answer = await client.chat_async(
             [
-                {"role": "system", "content": FAST_LOG_SYSTEM_PROMPT},
+                {"role": "system", "content": fast_prompt},
                 {"role": "user", "content": text},
             ],
             temperature=0.3,

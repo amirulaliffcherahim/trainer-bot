@@ -82,3 +82,25 @@ def format_today(
         lines.append(f"🎯 Race target: {target_pace}")
 
     return "\n".join(lines)
+
+
+def get_tomorrow_schedule(conn, today_date: date) -> str:
+    """One-line summary of tomorrow's schedule for prompt context."""
+    from datetime import timedelta
+    tomorrow_iso = (today_date + timedelta(days=1)).isoformat()
+    workout = get_workout(conn, tomorrow_iso)
+    if workout is None:
+        return "Tomorrow is scheduled as a rest / recovery day."
+    session = workout.get("session_type", "workout")
+    if "rest" in session.lower():
+        return "Tomorrow is scheduled as a rest day."
+    km = workout.get("prescribed_km")
+    pace = workout.get("target_pace")
+    parts = []
+    if km:
+        parts.append(f"{km:g} km" if isinstance(km, float) else f"{km} km")
+    if pace:
+        parts.append(f"@{pace}")
+    detail = " ".join(parts)
+    return f"Tomorrow's scheduled session is {session}" + (f" ({detail})" if detail else ".")
+

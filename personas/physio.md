@@ -1,6 +1,6 @@
 ---
 name: Physiotherapy Trainer
-signals: pain, injury, ache, hurt, swelling, tendonitis, shin splints, quad, knee, ankle, calf, heel, numbness, tingling, betis, sengal, symptom
+signals: pain, injury, ache, hurt, swelling, tendonitis, shin splints, quad, knee, ankle, calf, heel, numbness, tingling, betis, peha, sengal, ketat, lenguh, symptom
 veto_level: 4
 ---
 

@@ -84,7 +84,8 @@ SYMPTOM_KEYWORDS = frozenset(
     {
         "quad", "shin", "knee", "calf", "achilles", "ankle", "hip",
         "hamstring", "heel", "pain", "tight", "sore", "ache", "tendonitis",
-        "swelling", "betis", "sengal", "kaku", "numb", "tingling",
+        "swelling", "betis", "peha", "sengal", "lenguh", "ketat", "kaku",
+        "koyak", "lemau", "numb", "tingling",
     }
 )
 

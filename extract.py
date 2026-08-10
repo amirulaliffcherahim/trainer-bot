@@ -41,11 +41,12 @@ You extract structured training data from a casual runner's message. The
 runner writes in English or Malaysian English ("rojak").
 
 Recognize colloquial terms and normalize them:
-- "betis" = calf; "ketat"/"tight" = tightness; "kaku" = stiff; "sengal" = ache
-- "panas terik"/"terik" = scorching heat; "hujan lebat" = heavy rain;
+- "betis" = calf; "peha" = quad/thigh; "lutut" = knee; "tumit" = heel; "buku lali" = ankle; "kaki" = leg
+- "ketat"/"tight" = tightness; "kaku" = stiff; "sengal"/"lenguh" = ache/sore; "lemau"/"penat" = tired/fatigued; "koyak" = exhausted
+- "panas terik"/"terik"/"panas gila" = scorching heat; "hujan lebat" = heavy rain;
   "lembap" = humid; "angin kencang" = strong wind
 - "sub-7" = pace under 7:00 min/km; "easy run"/"easy" = easy_run; "tempo" = tempo_run
-- Mention of pain location (knee, quad, shin, calf...) stays in notes and is
+- Mention of pain/tightness location (knee, quad, shin, calf, peha, betis...) stays in notes and is
   flagged as a symptom — never diagnose.
 
 Rules:
