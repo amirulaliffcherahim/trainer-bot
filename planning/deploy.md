@@ -55,3 +55,10 @@ pm2 restart trainer-bot --update-env && pm2 save
 ```bash
 curl -s http://localhost:4040/api/status   # on server or via ssh
 ```
+
+## Git-based deploy (current, 2026-09)
+- Local: commit → `git push origin main`.
+- Server: `cd ~/trainer-src && git pull && npm ci && npm run build && pm2 restart trainer-bot`.
+- `~/trainer-src` = repo checkout (build output inside); DB lives at the
+  absolute path `/home/yuki/trainer-bot/trainer.db` (data dir kept separate
+  from source); env lives in `~/trainer-src/ecosystem.config.cjs` (chmod 600).
