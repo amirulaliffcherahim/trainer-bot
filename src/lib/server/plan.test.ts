@@ -56,11 +56,15 @@ describe('base-mode plan (no event)', () => {
 		}
 	});
 
-	it('paces present when VDOT known, absent when not', () => {
+	it('workouts carry effort targets (1–10), never paces', () => {
 		const wv = generatePlan(opts());
-		expect(wv.some((x) => x.pace_min_s_km !== null)).toBe(true);
-		const nov = generatePlan(opts({ vdotVal: null }));
-		expect(nov.every((x) => x.kind === 'rest' || x.pace_min_s_km === null)).toBe(true);
+		const runs = wv.filter((x) => x.kind !== 'rest' && x.kind !== 'race');
+		expect(runs.length).toBeGreaterThan(0);
+		for (const r of runs) {
+			expect(r.label).toMatch(/effort (\d+)(–\d+)?\/10/);
+			expect(r.label).not.toContain('/km');
+			expect(r.pace_min_s_km).toBeNull();
+		}
 	});
 
 	it('step-back week every 3rd week (~65% volume)', () => {
@@ -121,8 +125,9 @@ describe('interval sessions in build weeks', () => {
 		expect(iv.length).toBe(1);
 		const d = new Date(iv[0].plan_date + 'T00:00:00').getDay();
 		expect(d).toBe(4); // Thursday
-		// pace equals 1609.344/velocity(50*0.975) per km scale
-		expect(iv[0].pace_min_s_km).not.toBeNull();
+		// effort-based: label carries an 8–9/10 speedwork target, no pace
+		expect(iv[0].label).toContain('effort');
+		expect(iv[0].pace_min_s_km).toBeNull();
 		expect(iv[0].reason).toContain('97.5%');
 	});
 });

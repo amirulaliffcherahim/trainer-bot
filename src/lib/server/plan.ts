@@ -118,6 +118,15 @@ const KB = {
 const LONG_SHARE = 0.3;
 const HARD_SHARE = 0.08;
 
+/** Effort prescription (1 = recovery … 10 = all-out) per workout kind.
+ *  Ranges are the coach's target band for the session. */
+export const EFFORT: Record<Exclude<SessionKind, 'rest' | 'race'>, string> = {
+	easy: '3–4',
+	quality: '7–8', // threshold, comfortably hard
+	interval: '8–9', // speedwork — hard but not all-out
+	long: '4'
+};
+
 export interface GenOpts {
 	today: string;
 	horizonDays?: number;
@@ -352,17 +361,17 @@ export function generatePlan(o: GenOpts): Session[] {
 		}
 
 		const distM = Math.max(round50(meta.targetKm * ds.share * 1000), 0);
-		const paceS = v ? Math.round(secPerKm(v, ds.frac)) : null;
-		const durMin = distM > 0 && paceS ? Math.round((distM / 1000 / 60) * paceS * 10) / 10 : null;
-		const label = paceS ? `${ds.label} · ${fmtPace(paceS)}/km` : `${ds.label} — no VDOT anchor yet, easy effort`;
+		// Workouts are prescribed by EFFORT (1 = recovery, 10 = all-out), not
+		// pace. VDOT stays the fitness anchor and drives Fitness/Race screens.
+		const label = `${ds.label} · effort ${EFFORT[ds.kind]}/10`;
 		out.push({
 			plan_date: date,
 			kind: ds.kind,
 			label,
 			distance_m: distM > 0 ? distM : null,
-			duration_min: durMin,
-			pace_min_s_km: paceS,
-			pace_max_s_km: paceS,
+			duration_min: null,
+			pace_min_s_km: null,
+			pace_max_s_km: null,
 			plan_week: wk,
 			reason: ds.reason
 		});

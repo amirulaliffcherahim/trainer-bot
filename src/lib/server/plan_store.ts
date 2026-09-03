@@ -1,6 +1,6 @@
 import { getDb } from './db';
 import type { ActRow, PlanEvent, PlanPrefs, Session } from './plan';
-import { generatePlan, volumeAnchorKm, addDays, secPerKm, fmtPace, type SessionKind } from './plan';
+import { generatePlan, volumeAnchorKm, addDays, EFFORT } from './plan';
 import { latestSnapshot } from './fitness';
 import { matchPlan, type ActBrief } from './match';
 import { adjust, type AdjustCtx, type JournalState } from './s3';
@@ -333,20 +333,17 @@ export function swapSessionKind(planDate: string, kind: Session['kind']): boolea
 		| { id: number; distance_m: number | null }
 		| undefined;
 	if (!row || row.distance_m == null) return false;
-	const vdotVal = latestSnapshot()?.vdot ?? null;
-	const meta: Record<string, { frac: number; label: string }> = {
-		easy: { frac: 0.66, label: 'Easy run' },
-		quality: { frac: 0.88, label: 'Threshold' },
-		interval: { frac: 0.975, label: 'Speedwork' },
-		long: { frac: 0.7, label: 'Long run' }
+	const meta: Record<string, { label: string; effort: string }> = {
+		easy: { label: 'Easy run', effort: EFFORT.easy },
+		quality: { label: 'Threshold', effort: EFFORT.quality },
+		interval: { label: 'Speedwork', effort: EFFORT.interval },
+		long: { label: 'Long run', effort: EFFORT.long }
 	};
 	const m = meta[kind];
 	if (!m) return false;
-	const pace = vdotVal ? Math.round(secPerKm(vdotVal, m.frac)) : null;
-	const label = pace ? `${m.label} · ${fmtPace(pace)}/km` : `${m.label} — no VDOT anchor yet, easy effort`;
-	const durMin = pace ? Math.round(((row.distance_m / 1000 / 60) * pace) * 10) / 10 : null;
+	const label = `${m.label} · effort ${m.effort}/10`;
 	getDb()
-		.prepare('UPDATE planned_sessions SET kind = ?, label = ?, pace_min_s_km = ?, pace_max_s_km = ?, duration_min = ?, reason = ? WHERE id = ?')
-		.run(kind, label, pace, pace, durMin, `your pick — swapped to ${m.label}`, row.id);
+		.prepare('UPDATE planned_sessions SET kind = ?, label = ?, pace_min_s_km = NULL, pace_max_s_km = NULL, duration_min = NULL, reason = ? WHERE id = ?')
+		.run(kind, label, `your pick — swapped to ${m.label}`, row.id);
 	return true;
 }
