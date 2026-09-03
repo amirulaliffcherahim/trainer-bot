@@ -1,35 +1,27 @@
-# Secrets — NEVER commit
-.env
-.env.*
-!.env.example
+node_modules
 
-# Data — personal health data, never in repo
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-uploads/
-eval/real/
-
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
-logs/
-
-# Personal planning / pipeline workspace (public repo stays product-only)
-planning/
-.rpiv/
-
-# Your personal training calendar (never ship it)
-seed_plan.yaml
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# App data
+*.db
+*.db-*
