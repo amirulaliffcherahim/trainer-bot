@@ -2,6 +2,7 @@
    Runna-shaped cards, VDOT-style numbers, Strava orange reserved for sync. */
 
 :root {
+	color-scheme: light;
 	--bg: #fafaf9;
 	--surface: #ffffff;
 	--ink: #17171a;
@@ -17,6 +18,40 @@
 	--radius-sm: 12px;
 	--tabbar-h: 64px;
 	--maxw: 640px;
+	--notice-bg: #eef2ff;
+	--notice-line: #c7d2fe;
+	--notice-ink: #3730a3;
+	--tag-ok-bg: #dcfce7;
+	--tag-ok-ink: #15803d;
+	--tag-warn-bg: #fef3c7;
+	--tag-warn-ink: #b45309;
+	--tag-err-bg: #fee2e2;
+	--tag-err-ink: #b91c1c;
+	--tag-strava-bg: #ffe6db;
+	--tag-strava-ink: #c2410c;
+}
+
+[data-theme='dark'] {
+	color-scheme: dark;
+	--bg: #0b0e14;
+	--surface: #141a24;
+	--ink: #e7eaf1;
+	--ink-soft: #9aa3b2;
+	--line: #232c3a;
+	--accent: #7c8cff;
+	--accent-2: #a78bfa;
+	--accent-grad: linear-gradient(135deg, #5b6cf0, #8b5cf6);
+	--notice-bg: #1c2340;
+	--notice-line: #333c66;
+	--notice-ink: #c7d2fe;
+	--tag-ok-bg: #0f2e1d;
+	--tag-ok-ink: #4ade80;
+	--tag-warn-bg: #33270b;
+	--tag-warn-ink: #fbbf24;
+	--tag-err-bg: #3a1216;
+	--tag-err-ink: #f87171;
+	--tag-strava-bg: #381505;
+	--tag-strava-ink: #fb923c;
 }
 
 * { box-sizing: border-box; }
@@ -103,10 +138,11 @@ header.app-head {
 	display: inline-block; padding: 2px 9px; border-radius: 999px;
 	font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
 }
-.tag.ok { background: #dcfce7; color: var(--ok); }
-.tag.warn { background: #fef3c7; color: #b45309; }
-.tag.err { background: #fee2e2; color: var(--bad); }
-.tag.strava { background: #ffe6db; color: var(--strava); }
+.tag.ok { background: var(--tag-ok-bg); color: var(--tag-ok-ink); }
+.tag.warn { background: var(--tag-warn-bg); color: var(--tag-warn-ink); }
+.tag.err { background: var(--tag-err-bg); color: var(--tag-err-ink); }
+.tag.strava { background: var(--tag-strava-bg); color: var(--tag-strava-ink); }
+/* plain .tag (e.g. "ran on rest") stays neutral */
 
 .empty { text-align: center; color: var(--ink-soft); padding: 28px 12px; }
 .empty .big { font-size: 1.05rem; color: var(--ink); margin-bottom: 6px; font-weight: 600; }
@@ -134,7 +170,7 @@ nav.tabbar .tab[aria-current='page'] { color: var(--accent); }
 nav.tabbar .tab .ic { font-size: 1.25rem; line-height: 1; }
 
 .notice {
-	background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3;
+	background: var(--notice-bg); border: 1px solid var(--notice-line); color: var(--notice-ink);
 	border-radius: var(--radius-sm); padding: 10px 14px; font-size: 0.9rem; margin-bottom: 12px;
 }
 
@@ -146,6 +182,8 @@ nav.tabbar .tab .ic { font-size: 1.25rem; line-height: 1; }
 }
 .chip.on { background: var(--accent-grad); color: #fff; border-color: transparent; }
 .chip.hard { background: #7c2d12; border-color: transparent; color: #fff; }
+[data-theme='dark'] .chip.hard { background: #8b5cf6; }
+.chip:disabled { opacity: 0.4; cursor: default; }
 .lbl { display:block; font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-soft); margin: 10px 0 2px; }
 select.inp, input.inp {
 	padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
