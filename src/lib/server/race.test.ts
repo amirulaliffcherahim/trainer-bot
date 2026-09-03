@@ -35,6 +35,6 @@ describe('race briefing', () => {
 		expect(b.negativeSplit.some((l) => l.includes('5–10 s/km slower'))).toBe(true);
 		expect(b.fueling.some((l) => l.includes('sodium'))).toBe(true);
 		expect(b.fueling.some((l) => l.includes('20–24 g protein'))).toBe(true);
-		expect(b.postRace.some((l) => l.includes('VDOT anchor'))).toBe(true);
+		expect(b.postRace.some((l) => l.includes('VO₂ estimate'))).toBe(true);
 	});
 });
