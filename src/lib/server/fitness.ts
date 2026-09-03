@@ -1,15 +1,14 @@
 import { getDb } from './db';
 import { build_result, vdot, type VdotResult } from '../vdot';
 
-/** PB scan → VDOT snapshot.
- * Heuristic: only efforts at 5 km and longer count (user directive — a 1-mile
- * morning run must not set the anchor). Buckets around common race distances
- * (±15%); flags manual/trainer/commute excluded; recency window limits
- * staleness. Heat/treadmill/HR-aware refinement is a planned improvement.
+/** PB scan → VO₂ anchor (est.).
+ * Only your 5K PR feeds the anchor (user directive) — distance must sit in
+ * the 5K bucket (±15%); flags manual/trainer/commute excluded; recency
+ * window limits staleness.
  */
 
 export const RECENCY_DAYS = 120;
-export const BUCKETS_M = [5000, 10000, 15000, 21097, 42195];
+export const BUCKETS_M = [5000];
 
 interface ActivityRow {
 	strava_id: number;

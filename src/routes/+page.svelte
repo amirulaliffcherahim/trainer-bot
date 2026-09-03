@@ -80,7 +80,7 @@
 {:else if !data.status.connected}
 	<div class="card">
 		<h2>Connect your Strava</h2>
-		<p class="subtle">I’ll pull your activities (read-only), keep a live VDOT from your
+		<p class="subtle">I’ll pull your activities (read-only), keep an estimated VO₂ max from your
 			best efforts, and later build your plan around them.</p>
 		<a class="btn sync" href="/api/auth/strava">Connect with Strava</a>
 	</div>
@@ -92,7 +92,7 @@
 	{/if}
 	{#if data.fitness?.derived}
 		<div class="hero">
-			<div class="label">VDOT</div>
+			<div class="label">Estimated VO₂ max</div>
 			<div class="score">{data.fitness.derived.vdot.toFixed(1)}</div>
 			<div class="src">from {data.fitness.snapshot.source_name ?? 'your best effort'}
 				— {Math.round(data.fitness.snapshot.source_distance / 1000 * 10) / 10} km in
@@ -103,7 +103,7 @@
 		<div class="card">
 			<h2>No fitness anchor yet</h2>
 			<p class="subtle">After you connect, hit <strong>Sync now</strong> — I look for
-				recent best-effort runs (1 mi → marathon) to compute your VDOT.</p>
+				your 5K PR to compute your estimated VO₂ max.</p>
 			<button class="btn sync" onclick={syncNow} disabled={syncing}>
 				{syncing ? 'Syncing…' : 'Sync now'}
 			</button>

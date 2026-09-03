@@ -48,7 +48,7 @@ export function reviewActivity(a: ActivityRow, vdotVal: number | null): Review {
 	if (!vdotVal) {
 		return {
 			zone: 'no-anchor',
-			headline: 'No VDOT anchor yet',
+			headline: 'No VO₂ estimate yet',
 			points: [`${distKm.toFixed(1)} km at ${fmt(paceS)}/km logged.`, 'Sync enough runs and I\'ll score effort against your zones.']
 		};
 	}
@@ -69,7 +69,7 @@ export function reviewActivity(a: ActivityRow, vdotVal: number | null): Review {
 			lines.push(`${header}${hr} — right at Threshold. Comfortably hard, short-sentence pace. Good quality session.`);
 			break;
 		case 'interval':
-			lines.push(`${header}${hr} — Interval zone (≈97.5% VDOT). Keep these 3–5 min reps with full jogs — past 5 min you drift anaerobic.`);
+			lines.push(`${header}${hr} — Interval zone (≈97.5% of VO₂ max). Keep these 3–5 min reps with full jogs — past 5 min you drift anaerobic.`);
 			break;
 		case 'above':
 			lines.push(`${header}${hr} — faster than Interval pace. Short rep territory; fine for strides/reps with long recovery, risky as a habit.`);

@@ -17,14 +17,14 @@
 {#if !data.derived}
 	<div class="card">
 		<div class="empty">
-			<div class="big">No VDOT yet</div>
+			<div class="big">No VO₂ estimate yet</div>
 			Connect Strava and sync — your best recent efforts become your anchor.
 		</div>
 		<a class="btn" href="/settings">Settings</a>
 	</div>
 {:else}
 	<div class="hero">
-		<div class="label">VDOT</div>
+		<div class="label">Estimated VO₂ max</div>
 		<div class="score">{data.derived.vdot.toFixed(1)}</div>
 		{#if data.snapshot}
 			<div class="src">{data.snapshot.source_name ?? 'best effort'} ·

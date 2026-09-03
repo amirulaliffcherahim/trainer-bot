@@ -57,7 +57,7 @@
 <div class="card">
 	<h2>Activity & AI review</h2>
 	<p class="subtle">{data.activities.length} recent sessions — open one for the review and log how it felt.
-		{#if !data.has_vdot}<br><strong>No VDOT anchor yet</strong> — reviews show once an anchor exists.{/if}</p>
+		{#if !data.has_vdot}<br><strong>No VO₂ anchor yet</strong> — reviews show once an anchor exists.{/if}</p>
 </div>
 
 {#if data.activities.length === 0}

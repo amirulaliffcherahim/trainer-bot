@@ -61,7 +61,7 @@ export function raceBriefing(event: PlanEvent, vdotVal: number | null): RaceBrie
 	const kmLabel = event.distance_m >= 1000 ? `${Math.round((event.distance_m / 1000) * 10) / 10} km` : `${Math.round(event.distance_m)} m`;
 
 	const negativeSplit = [
-		`Goal ${kmLabel} in ${fmtTime(goalMin)} → race pace ${fmtPace(pace)}/km${fromTarget ? '' : vdotVal ? ' (VDOT-predicted — update it after your next effort/race)' : ' (no VDOT anchor yet — placeholder pace, sync some runs first)'}.`,
+		`Goal ${kmLabel} in ${fmtTime(goalMin)} → race pace ${fmtPace(pace)}/km${fromTarget ? '' : vdotVal ? ' (est. VO₂ max-predicted — update it after your next effort/race)' : ' (no VO₂ estimate yet — placeholder pace, sync some runs first)'}.`,
 		'Run the FIRST HALF 5–10 s/km slower than goal pace; the race is lost in the first 3 km far more often than the last 3. (pacing.md)',
 		'Walk through aid stations: ~10 s walking costs ~40 m — cheaper than the energy cost of pushing. (pacing.md)'
 	];
@@ -75,7 +75,7 @@ export function raceBriefing(event: PlanEvent, vdotVal: number | null): RaceBrie
 	];
 
 	const postRace = [
-		'The finish becomes your freshest VDOT anchor automatically on the next sync — no data entry.',
+		'The finish becomes your freshest VO₂ estimate automatically on the next sync — no data entry.',
 		'Week after: ~60% volume, easy only (the engine already schedules it if you renew after race day). (volume_progression.md)',
 		'Rest-day rules still apply: Wed + Sun full rest, mobility + 10-min routine on rest days. (rest_day_rules.md)',
 		'After a long race, do the 4-min post-run flush and daily mobility rather than jumping back to quality. (mobility KB)'

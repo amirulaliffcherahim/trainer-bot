@@ -18,7 +18,7 @@ export const POST: RequestHandler = async () => {
 			summary:
 				snapshot === null
 					? 'Synced, but no PB-able effort found in recent activities yet.'
-					: `Fitness anchor: VDOT ${snapshot.vdot.toFixed(1)}`
+					: `Fitness anchor (est. VO₂ max): ${snapshot.vdot.toFixed(1)}`
 		});
 	} catch (err) {
 		if (err instanceof StravaError) {

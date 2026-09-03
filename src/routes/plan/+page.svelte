@@ -149,7 +149,7 @@
 		<h2>🏁 {activeEvent.category || activeEvent.name}</h2>
 		<p class="subtle">{activeEvent.name} · {dist(activeEvent.distance_m)} · {daysTo(activeEvent.event_date)} days to go
 			{#if activeEvent.target_time_min}· target {Math.floor(activeEvent.target_time_min / 60)}:{String(Math.round(activeEvent.target_time_min % 60)).padStart(2, '0')}{/if}
-			{#if !data.hasVdot} · no VDOT anchor yet{/if}
+			{#if !data.hasVdot} · no VO₂ estimate yet{/if}
 			{#if activeEvent.id}<button class="btn ghost" style="width:auto;padding:2px 8px;font-size:.75rem;margin-left:6px" onclick={() => removeEvent(activeEvent.id)}>remove</button>{/if}
 			{#if activeEvent.id}<a class="btn" style="width:auto;padding:2px 12px;font-size:.75rem;margin-left:6px;text-decoration:none" href="/race">Race prep →</a>{/if}
 		</p>
