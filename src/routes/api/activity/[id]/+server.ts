@@ -25,14 +25,20 @@ export const GET: RequestHandler = async ({ params }) => {
 	const fb = feedbackFor([row.strava_id]).get(row.strava_id) ?? null;
 
 	// GPS streams, fetched live from Strava (single user — rate limits fine).
-	let streams: Record<string, unknown[]> | null = null;
+	let streams: Record<string, unknown[] | null> | null = null;
 	let streamError: string | null = null;
 	try {
-		const { data } = await apiGet<Record<string, unknown[]>>(
+		const { data } = await apiGet<Record<string, { data?: unknown[] } | unknown[] | null>>(
 			`/activities/${id}/streams?keys=${STREAM_KEYS.join(',')}&key_by_type=true`
 		);
-		streams = data;
+		// key_by_type=true returns each key wrapped as { data: [...] } — unwrap.
+		streams = {};
+		for (const k of STREAM_KEYS) {
+			const v = data?.[k];
+			streams[k] = Array.isArray(v) ? (v as unknown[]) : Array.isArray((v as { data?: unknown[] })?.data) ? ((v as { data: unknown[] }).data as unknown[]) : null;
+		}
 	} catch (err) {
+		streams = null;
 		streamError = err instanceof Error ? err.message : 'streams unavailable';
 	}
 
