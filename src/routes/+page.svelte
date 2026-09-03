@@ -96,7 +96,7 @@
 			<div class="score">{data.fitness.derived.vdot.toFixed(1)}</div>
 			<div class="src">from {data.fitness.snapshot.source_name ?? 'your best effort'}
 				— {Math.round(data.fitness.snapshot.source_distance / 1000 * 10) / 10} km in
-				{(data.fitness.snapshot.source_time_min / 60).toFixed(0)} min
+				{Math.round(data.fitness.snapshot.source_time_min)} min
 				({data.fitness.snapshot.source_date})</div>
 		</div>
 	{:else}

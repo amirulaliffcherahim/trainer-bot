@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { parseLocalIso } from '$lib/timefmt';
 	let { data } = $props();
 
 	const WDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -7,7 +8,7 @@
 	const dist = (m: number) => (m >= 1000 ? `${Math.round((m / 1000) * 10) / 10} km` : `${Math.round(m)} m`);
 	const day = (iso: string | null) => {
 		if (!iso) return '';
-		const d = new Date(iso);
+		const d = parseLocalIso(iso);
 		return `${WDAY[d.getDay()]}, ${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
 	};
 
@@ -76,6 +77,7 @@
 			</span>
 			{#if a.feedback}<span class="tag ok">rated {a.feedback.rpe ? a.feedback.rpe + '/10' : a.feedback.felt}</span>
 			{:else}<span class="tag warn">needs feedback</span>{/if}
+			<a class="tag" href={`/activity/${a.strava_id}`} style="text-decoration:none;margin-left:6px">charts ▸</a>
 		</button>
 
 		{#if openId === a.strava_id}

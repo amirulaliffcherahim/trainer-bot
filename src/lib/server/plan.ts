@@ -120,11 +120,13 @@ const HARD_SHARE = 0.08;
 
 /** Effort prescription (1 = recovery … 10 = all-out) per workout kind.
  *  Ranges are the coach's target band for the session. */
-export const EFFORT: Record<Exclude<SessionKind, 'rest' | 'race'>, string> = {
+export const EFFORT: Record<SessionKind, string> = {
 	easy: '3–4',
 	quality: '7–8', // threshold, comfortably hard
 	interval: '8–9', // speedwork — hard but not all-out
-	long: '4'
+	long: '4',
+	rest: '1',
+	race: '10'
 };
 
 export interface GenOpts {
@@ -197,7 +199,9 @@ export function buildDaySpecs(prefs: PlanPrefs, phase: Phase, isExplicit: boolea
 		const easyShare = easyDays.length > 0 ? (1 - longShare - hardTotal) / easyDays.length : 0;
 
 		for (const d of days) {
-			let kind = kinds![d];
+			const chosen = kinds![d];
+			if (chosen === undefined) continue; // unreachable, satisfies TS
+			let kind: SessionKind = chosen;
 			// taper weeks: speedwork becomes lighter threshold work
 			if ((phase === 'taper-3' || phase === 'taper-2') && kind === 'interval') kind = 'quality';
 			const meta = KIND_META[kind];
