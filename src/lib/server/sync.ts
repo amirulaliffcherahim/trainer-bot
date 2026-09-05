@@ -179,8 +179,8 @@ async function captureSamples(id: number, startDateIso: string, raw: Record<stri
 	const ll = get('latlng') as [number, number][] | null;
 	const start = new Date(startDateIso);
 	if (Number.isNaN(start.getTime())) return;
-	const rows: unknown[] = [];
-	const mk = (i: number) => {
+	const rows: unknown[][] = [];
+	const mk = (i: number): unknown[] => {
 		const p = ll?.[i];
 		return [
 			id,
@@ -203,8 +203,9 @@ async function captureSamples(id: number, startDateIso: string, raw: Record<stri
 	const BATCH = 800;
 	for (let i = 0; i < rows.length; i += BATCH) {
 		const chunk = rows.slice(i, i + BATCH);
+		const width = chunk[0].length;
 		const placeholders = chunk
-			.map((_, r) => `(${chunk[0].map((_, c) => `$${r * chunk[0].length + c + 1}`).join(',')})`)
+			.map((_, r) => `(${Array.from({ length: width }, (_, c) => `$${r * width + c + 1}`).join(',')})`)
 			.join(',');
 		await dbRun(
 			`INSERT INTO activity_samples (activity_id, ts, t_sec, dist_m, lat, lng, alt_m, vel_m_s, hr, cad, temp_c, watts, moving, grade)
