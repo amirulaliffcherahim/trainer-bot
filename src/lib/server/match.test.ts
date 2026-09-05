@@ -45,6 +45,14 @@ describe('matchPlan', () => {
 		expect(mk(0, 4)[0].planned[0].status).toBe('missed');
 	});
 
+	it('days after today stay unevaluated (planned), rest days included', () => {
+		const future = sess({ plan_date: '2026-09-20', kind: 'easy', distance_m: 10000 });
+		const rest = sess({ plan_date: '2026-09-21', kind: 'rest', distance_m: null });
+		const days = matchPlan([future, rest], [], '2026-09-07');
+		expect(days[0].planned[0].status).toBe('planned');
+		expect(days[1].planned[0].status).toBe('planned');
+	});
+
 	it('ignores trainer / commute / manual activities entirely', () => {
 		const days = matchPlan([sess({ distance_m: 10000 })], [
 			act({ strava_id: 1, distance: 9000, trainer: 1 }),

@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+import { fmt_time } from '$lib/vdot';
 	let { data } = $props();
+
+	const prettyDate = (iso: string | null | undefined) =>
+		iso ? new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
 
 	const notice = $derived(page.url.searchParams.get('notice'));
 	let syncing = $state(false);
@@ -95,9 +99,9 @@
 			<div class="label">Estimated VO₂ max</div>
 			<div class="score">{data.fitness.derived.vdot.toFixed(1)}</div>
 			<div class="src">from {data.fitness.snapshot.source_name ?? 'your best effort'}
-				— {Math.round(data.fitness.snapshot.source_distance / 1000 * 10) / 10} km in
-				{Math.round(data.fitness.snapshot.source_time_min)} min
-				({data.fitness.snapshot.source_date})</div>
+				· {Math.round(data.fitness.snapshot.source_distance / 1000 * 10) / 10} km
+				· {fmt_time(data.fitness.snapshot.source_time_min)}
+				· {prettyDate(data.fitness.snapshot.source_date)}</div>
 		</div>
 	{:else}
 		<div class="card">
@@ -143,7 +147,7 @@
 	</div>
 
 	{#if coachLine}
-		<div class="notice">🧠 {coachLine}</div>
+		<div class="notice"><strong>Coach</strong> · {coachLine}</div>
 	{/if}
 
 	<div class="card">
@@ -156,10 +160,10 @@
 							<span style="font-weight:700">
 								{KIND[p.session.kind]}{#if p.session.distance_m} · {distKm(p.session.distance_m)}{/if}
 							</span>
-							{#if p.status === 'done'}<span class="tag ok">✓ done</span>
-							{:else if p.status === 'partial'}<span class="tag warn">~ partial</span>
-							{:else if p.status === 'missed'}<span class="tag err">✗ missed</span>
-							{:else if p.status === 'extra'}<span class="tag">ran on rest</span>{/if}
+							{#if p.status === 'done'}<span class="tag ok">Completed</span>
+							{:else if p.status === 'partial'}<span class="tag warn">Modified</span>
+							{:else if p.status === 'missed'}<span class="tag err">Missed</span>
+							{:else if p.status === 'extra'}<span class="tag">Extra run</span>{/if}
 						</div>
 						{#if p.session.kind !== 'rest'}
 							<span class="subtle">{p.session.label}</span>

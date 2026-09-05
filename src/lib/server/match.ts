@@ -16,7 +16,7 @@ export interface ActBrief {
 	manual: number;
 }
 
-export type MatchStatus = 'done' | 'partial' | 'missed' | 'extra';
+export type MatchStatus = 'done' | 'partial' | 'missed' | 'extra' | 'planned';
 
 export interface MatchedDay {
 	date: string;
@@ -26,8 +26,10 @@ export interface MatchedDay {
 
 const isRunKind = (k: Session['kind']) => k !== 'rest';
 
-/** Match planned sessions to activities, grouped by athlete-local date. */
-export function matchPlan(sessions: Session[], acts: ActBrief[]): MatchedDay[] {
+/** Match planned sessions to activities, grouped by athlete-local date.
+ *  Pass `today` (athlete-local 'YYYY-MM-DD') so days AFTER today stay
+ *  unevaluated ('planned') instead of being flagged missed/done early. */
+export function matchPlan(sessions: Session[], acts: ActBrief[], today?: string): MatchedDay[] {
 	const byDate = new Map<string, ActBrief[]>();
 	for (const a of acts) {
 		const date = a.start_date_local?.slice(0, 10);
@@ -47,6 +49,7 @@ export function matchPlan(sessions: Session[], acts: ActBrief[]): MatchedDay[] {
 		const planned = sessions
 			.filter((s) => s.plan_date === date)
 			.map((session): { session: Session; status: MatchStatus } => {
+				if (today && date > today) return { session, status: 'planned' };
 				if (session.kind === 'rest') {
 					return { session, status: runs.length > 0 ? 'extra' : 'done' };
 				}

@@ -67,17 +67,19 @@
 
 {#each data.activities as a (a.strava_id)}
 	<div class="card" style="padding:12px 14px">
-		<button class="row" style="width:100%;border:0;background:none;cursor:pointer;text-align:left;padding:0" onclick={() => openAct(a)}>
-			<span>
+		<button class="row" style="width:100%;border:0;background:none;cursor:pointer;text-align:left;padding:0;gap:8px" onclick={() => openAct(a)}>
+			<span style="flex:1;min-width:0">
 				<span style="font-weight:700">{a.name}</span><br>
 				<span class="subtle">{day(a.start_date_local)} · {dist(a.distance)}
 					{#if a.pace_sec_km} · {psec(a.pace_sec_km)}/km{/if}
-					{#if a.average_heartrate} · ❤ {Math.round(a.average_heartrate)}{/if}
+					{#if a.average_heartrate} · {Math.round(a.average_heartrate)} bpm avg{/if}
 				</span>
 			</span>
-			{#if a.feedback}<span class="tag ok">rated {a.feedback.rpe ? a.feedback.rpe + '/10' : a.feedback.felt}</span>
-			{:else}<span class="tag warn">needs feedback</span>{/if}
-			<a class="tag" href={`/activity/${a.strava_id}`} style="text-decoration:none;margin-left:6px">charts ▸</a>
+			<span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+				{#if a.feedback}<span class="tag">effort {a.feedback.rpe ? a.feedback.rpe + '/10' : a.feedback.felt}</span>
+				{:else}<span class="tag warn">needs feedback</span>{/if}
+				<a class="tag" href={`/activity/${a.strava_id}`} style="text-decoration:none">charts</a>
+			</span>
 		</button>
 
 		{#if openId === a.strava_id}
@@ -99,7 +101,7 @@
 					<span class="lbl">Effort (RPE 1–10)</span>
 					<div class="chips">
 						{#each [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as n (n)}
-							<button class="chip {form.rpe === String(n) ? 'hard' : ''}" onclick={() => (form.rpe = String(n))}>{n}</button>
+							<button class="chip {form.rpe === String(n) ? 'on' : ''}" onclick={() => (form.rpe = String(n))}>{n}</button>
 						{/each}
 					</div>
 					<span class="lbl">Soreness after</span>

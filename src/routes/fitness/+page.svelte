@@ -27,17 +27,18 @@
 		<div class="label">Estimated VO₂ max</div>
 		<div class="score">{data.derived.vdot.toFixed(1)}</div>
 		{#if data.snapshot}
-			<div class="src">{data.snapshot.source_name ?? 'best effort'} ·
-				{Math.round(data.snapshot.source_distance / 100) / 10} km in
-				{fmt_time(data.snapshot.source_time_min)} · {data.snapshot.source_date}</div>
+			<div class="src">from {data.snapshot.source_name ?? 'best effort'}
+				· {Math.round(data.snapshot.source_distance / 100) / 10} km
+				· {fmt_time(data.snapshot.source_time_min)}
+				· {new Date(data.snapshot.source_date + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</div>
 		{/if}
 	</div>
 
 	<div class="card">
-		<h2>Training paces <span class="subtle">per mile</span></h2>
+		<h2>Training paces</h2>
 		<table class="tbl">
 			<thead>
-				<tr><th>Type</th><th class="num">Pace</th><th class="num">KM</th></tr>
+				<tr><th>Type</th><th class="num">min/mi</th><th class="num">min/km</th></tr>
 			</thead>
 			<tbody>
 				<tr>

@@ -145,13 +145,20 @@
 {#if notice}<div class="notice">{notice}</div>{/if}
 
 {#if activeEvent}
-	<div class="card" style="border-left:4px solid var(--strava)">
-		<h2>🏁 {activeEvent.category || activeEvent.name}</h2>
-		<p class="subtle">{activeEvent.name} · {dist(activeEvent.distance_m)} · {daysTo(activeEvent.event_date)} days to go
+	<div class="card racebanner">
+		<div class="raceb-top">
+			<h2 style="margin:0">{activeEvent.category || activeEvent.name}</h2>
+			{#if activeEvent.id}
+				<div style="display:flex;gap:6px">
+					<a class="btn" style="width:auto;padding:6px 12px;font-size:.8rem" href="/race">Race prep</a>
+					<button class="btn ghost iconbtn" style="padding:6px" onclick={() => removeEvent(activeEvent.id)} aria-label="remove race">✕</button>
+				</div>
+			{/if}
+		</div>
+		<p class="subtle" style="margin:6px 0 0">
+			{activeEvent.name || 'Goal race'} · {dist(activeEvent.distance_m)} · {daysTo(activeEvent.event_date)} days to go
 			{#if activeEvent.target_time_min}· target {Math.floor(activeEvent.target_time_min / 60)}:{String(Math.round(activeEvent.target_time_min % 60)).padStart(2, '0')}{/if}
-			{#if !data.hasVdot} · no VO₂ estimate yet{/if}
-			{#if activeEvent.id}<button class="btn ghost" style="width:auto;padding:2px 8px;font-size:.75rem;margin-left:6px" onclick={() => removeEvent(activeEvent.id)}>remove</button>{/if}
-			{#if activeEvent.id}<a class="btn" style="width:auto;padding:2px 12px;font-size:.75rem;margin-left:6px;text-decoration:none" href="/race">Race prep →</a>{/if}
+			{#if !data.hasVdot} · no VO₂ anchor yet{/if}
 		</p>
 	</div>
 {/if}
@@ -183,7 +190,7 @@
 					<span style="width:56px;font-weight:600">{WDAY[d]}</span>
 					<button class="chip {!kindOf(d) ? 'on' : ''}" onclick={() => setKind(d, '')}>Auto</button>
 					{#each KIND_OPTIONS as k (k)}
-						<button class="chip {kindOf(d) === k ? (hardOf(d) ? 'hard' : 'on') : ''}" onclick={() => setKind(d, k)}>
+						<button class="chip {kindOf(d) === k ? 'on' : ''}" onclick={() => setKind(d, k)}>
 							{KIND_LABEL[k]}
 						</button>
 					{/each}
@@ -216,37 +223,47 @@
 
 {#if data.days.length > 0}
 	<div class="card">
-		<p class="subtle">Volume anchor: {data.anchorKm} km/wk
-			{data.prefs ? '' : ''}{activeEvent ? '' : ' · ≤10%/wk growth, step-back every 3rd week'}</p>
+		<div class="calhead">
+			<p class="subtle" style="margin:0"><strong style="color:var(--ink)">Your plan</strong> · next {data.days.length} days</p>
+			<p class="subtle" style="margin:0">anchor {data.anchorKm} km/wk{activeEvent ? '' : ' · grow ≤10%/wk'}</p>
+		</div>
 		{#each data.days as day (day.date)}
-			<div style="border-bottom:1px solid var(--line);padding:8px 0">
-				<div style="display:flex;gap:8px;align-items:baseline">
-					<span style="font-weight:700;width:44px">{wd(day.date)}</span>
-					<span class="subtle" style="width:60px">{pretty(day.date)}</span>
-					{#each day.planned as p (day.date + p.session.kind)}
-						<span style="flex:1">
-							<span style="font-weight:600">{KIND[p.session.kind] ?? p.session.kind}</span>
-							{#if dist(p.session.distance_m)} <span class="subtle">{dist(p.session.distance_m)}</span>{/if}
-							{#if paceBand(p.session)} <span class="subtle">@{paceBand(p.session)}/km</span>{/if}
-							{#if p.session.kind === 'rest'}<span style="display:block" class="subtle">{p.session.reason}</span>{/if}
-						</span>
-						{#if p.status === 'done'}<span class="tag ok">✓ done</span>
-						{:else if p.status === 'partial'}<span class="tag warn">~ partial</span>
-						{:else if p.status === 'missed'}<span class="tag err">✗ missed</span>
-						{:else if p.status === 'extra'}<span class="tag">ran on rest</span>{/if}
-					{/each}
+			<div class="dayrow">
+				<div class="dayrow-main">
+					<div class="daydate">
+						<span class="dow">{wd(day.date)}</span>
+						<span class="subtle dsub">{pretty(day.date)}</span>
+					</div>
+					<div class="dmain">
+						{#each day.planned as p (day.date + p.session.kind)}
+							<div class="dline">
+								<span class="dkind">{KIND[p.session.kind] ?? p.session.kind}</span>
+								{#if dist(p.session.distance_m)} <span class="subtle">{dist(p.session.distance_m)}</span>{/if}
+								{#if paceBand(p.session)} <span class="subtle">@{paceBand(p.session)}/km</span>{/if}
+								{#if p.session.kind === 'rest'} <span class="subtle">· {p.session.reason}</span>{/if}
+							</div>
+						{/each}
+					</div>
+					<div class="dstatus">
+						{#each day.planned as p (day.date + p.session.kind + 'st')}
+							{#if p.status === 'done'}<span class="tag ok">Completed</span>
+							{:else if p.status === 'partial'}<span class="tag warn">Modified</span>
+							{:else if p.status === 'missed'}<span class="tag err">Missed</span>
+							{:else if p.status === 'extra'}<span class="tag">Extra run</span>{/if}
+						{/each}
+					</div>
 				</div>
 				{#if day.planned[0] && day.planned[0].session.kind !== 'rest' && day.planned[0].session.kind !== 'race'}
-					<div class="chips" style="margin:4px 0 0 110px;gap:4px">
+					<div class="chips swapchips">
 						{#each KIND_OPTIONS as k (day.date + k)}
-							<button class="chip {day.planned[0].session.kind === k ? 'hard' : ''}" style="padding:2px 8px;font-size:.72rem" onclick={() => swapSession(day.date, k)} disabled={busy}>
+							<button class="chip sm {day.planned[0].session.kind === k ? 'on' : ''}" onclick={() => swapSession(day.date, k)} disabled={busy}>
 								{KIND_LABEL[k]}
 							</button>
 						{/each}
 					</div>
 				{/if}
 				{#if day.extras.length > 0}
-					<div class="subtle" style="margin-top:2px;padding-left:112px">
+					<div class="subtle dayextra">
 						+ {day.extras.map((x: { distance: number }) => dist(x.distance)).join(' · ')} extra run{day.extras.length > 1 ? 's' : ''}
 					</div>
 				{/if}

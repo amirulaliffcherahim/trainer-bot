@@ -189,7 +189,7 @@ export function planView(horizonDays: number, regenerate: boolean): {
 	}
 	const acts = activitiesInWindow(today, toDate);
 	return {
-		days: matchPlan(sessions, acts),
+		days: matchPlan(sessions, acts, today),
 		events,
 		anchorKm,
 		hasVdot: vdotVal !== null,

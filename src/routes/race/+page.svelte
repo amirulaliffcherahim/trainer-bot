@@ -26,10 +26,10 @@
 	</div>
 {:else}
 	<div class="hero" style="background:linear-gradient(135deg,#9a3412,#c2410c)">
-		<div class="label">🏁 {race.race.category || race.race.name}</div>
+		<div class="label">{race.race.category || race.race.name}</div>
 		<div class="score" style="font-size:1.8rem">{dist(race.race.distance_m)} · {race.daysTo} days to go</div>
 		<div class="src">
-			{race.race.name} · {race.race.event_date} ·
+			{race.race.name} · {new Date(race.race.event_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })} ·
 			Goal {fmtTime(race.goal.timeMin)} · {fmtPace(race.goal.pace_s_km)}/km
 		</div>
 	</div>

@@ -40,7 +40,7 @@
 	</div>
 	<div class="row"><span class="k">Connected</span>
 		{#if data.connected}
-			<span class="tag ok">yes — {data.connected_athlete}</span>
+		<span class="tag ok">yes{data.connected_athlete ? ' — ' + data.connected_athlete : ''}</span>
 		{:else}
 			<span class="tag warn">not yet</span>
 		{/if}

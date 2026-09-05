@@ -29,7 +29,10 @@
 
 	/** Elevation profile + per-km-ish pace chart, straight to SVG paths. */
 	const charts = $derived.by(() => {
-		const out = { climb: 0, elevPath: '', elevArea: '', pacePath: '', elevLow: 0, elevHigh: 0 };
+		const out = {
+			climb: 0, elevPath: '', elevArea: '', pacePath: '',
+			elevLow: 0, elevHigh: 0, km: 0, paceFast: 0, paceSlow: 0
+		};
 		const n = Math.min(dist.length, alt.length);
 		if (n > 10 && alt.length > 0) {
 			const step = Math.max(1, Math.floor(n / 160));
@@ -45,6 +48,7 @@
 			out.climb = climb;
 			out.elevLow = Math.min(...pts.map((p) => p[1]));
 			out.elevHigh = Math.max(...pts.map((p) => p[1]));
+			out.km = dist[n - 1] / 1000;
 			const ds = pts.map((p) => p[0]);
 			const es = pts.map((p) => p[1]);
 			const dMin = Math.min(...ds);
@@ -69,10 +73,12 @@
 			if (pts.length > 2) {
 				const ds = pts.map((p) => p[0]);
 				const ps = pts.map((p) => p[1]);
+				out.paceFast = Math.round(Math.min(...ps));
+				out.paceSlow = Math.round(Math.max(...ps));
 				const dMin = Math.min(...ds);
 				const dMax = Math.max(...ds);
-				const pMin = Math.max(Math.min(...ps) - 15, 1);
-				const pMax = Math.max(...ps) + 15;
+				const pMin = Math.max(out.paceFast - 15, 1);
+				const pMax = out.paceSlow + 15;
 				out.pacePath = pts
 					.map(([d, pa], i) => {
 						const x = PAD + ((d - dMin) / Math.max(dMax - dMin, 1)) * (W - 2 * PAD);
@@ -84,6 +90,9 @@
 		}
 		return out;
 	});
+	const xAt = (t: number) => PAD + t * (W - 2 * PAD);
+	const gridYs = [0.25, 0.5, 0.75].map((f) => H - PAD - f * (H - 2 * PAD));
+	const kmTick = (km: number) => (km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1).replace(/\.0$/, '')} km`);
 
 	/* ---------- map (leaflet, lazy) ---------- */
 	let mapEl: HTMLDivElement | undefined = $state();
@@ -114,8 +123,7 @@
 		<h2 style="margin:6px 0 2px">{a.name}</h2>
 		<p class="subtle">
 			{day(a.start_date_local)} · {Math.round(a.distance / 100) / 10} km · {fmtTime(a.moving_time)} · {psec(a.pace_sec_km)}/km
-			{#if a.average_heartrate} · ❤ {Math.round(a.average_heartrate)}{/if}
-			{#if charts.climb > 0} · ⛰ {charts.climb.toFixed(0)} m gain{/if}
+			{#if a.average_heartrate} · {Math.round(a.average_heartrate)} bpm avg{/if}
 		</p>
 	</div>
 
@@ -124,18 +132,32 @@
 	{:else}
 		{#if charts.elevPath}
 			<div class="card">
-				<h2>Elevation <span class="subtle">{charts.elevLow.toFixed(0)}–{charts.elevHigh.toFixed(0)} m</span></h2>
-				<svg viewBox="0 0 320 90" width="100%" role="img" aria-label="elevation profile" style="color:var(--ink)">
+				<h2>Elevation <span class="subtle">{charts.elevLow.toFixed(0)}–{charts.elevHigh.toFixed(0)} m{charts.climb > 0 ? ` · +${charts.climb.toFixed(0)} m gain` : ''}</span></h2>
+				<svg viewBox="0 0 320 92" width="100%" role="img" aria-label="elevation profile" style="color:var(--ink)">
+					{#each gridYs as gy (gy)}
+						<line x1={xAt(0)} x2={xAt(1)} y1={gy} y2={gy} stroke="var(--line)" stroke-width="1" />
+					{/each}
 					<path d={charts.elevArea} fill="currentColor" opacity="0.14" />
 					<path d={charts.elevPath} fill="none" stroke="currentColor" stroke-width="2" />
+					<text x={xAt(0)} y="90" style="fill:var(--ink-soft)" font-size="8.5">0</text>
+					<text x={xAt(0.5)} y="90" text-anchor="middle" style="fill:var(--ink-soft)" font-size="8.5">{kmTick(charts.km / 2)}</text>
+					<text x={xAt(1)} y="90" text-anchor="end" style="fill:var(--ink-soft)" font-size="8.5">{kmTick(charts.km)}</text>
 				</svg>
 			</div>
 		{/if}
 		{#if charts.pacePath}
 			<div class="card">
-				<h2>Pace <span class="subtle">s/km</span></h2>
-				<svg viewBox="0 0 320 90" width="100%" role="img" aria-label="pace chart" style="color:var(--strava)">
+				<h2>Pace <span class="subtle">min/km · faster at top</span></h2>
+				<svg viewBox="0 0 320 92" width="100%" role="img" aria-label="pace chart" style="color:var(--strava)">
+					{#each gridYs as gy (gy)}
+						<line x1={xAt(0)} x2={xAt(1)} y1={gy} y2={gy} stroke="var(--line)" stroke-width="1" />
+					{/each}
+					<text x={xAt(1)} y="14" text-anchor="end" style="fill:var(--ink-soft)" font-size="8.5">fastest {psec(charts.paceFast)}</text>
 					<path d={charts.pacePath} fill="none" stroke="currentColor" stroke-width="2" />
+					<text x={xAt(1)} y="82" text-anchor="end" style="fill:var(--ink-soft)" font-size="8.5">slowest {psec(charts.paceSlow)}</text>
+					<text x={xAt(0)} y="90" style="fill:var(--ink-soft)" font-size="8.5">0</text>
+					<text x={xAt(0.5)} y="90" text-anchor="middle" style="fill:var(--ink-soft)" font-size="8.5">{kmTick(charts.km / 2)}</text>
+					<text x={xAt(1)} y="90" text-anchor="end" style="fill:var(--ink-soft)" font-size="8.5">{kmTick(charts.km)}</text>
 				</svg>
 			</div>
 		{/if}
