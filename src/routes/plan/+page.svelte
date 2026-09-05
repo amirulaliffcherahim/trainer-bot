@@ -25,17 +25,27 @@
 	const activeEvent = $derived(data.events.find((e: { event_date: string }) => e.event_date >= new Date().toISOString().slice(0, 10)));
 
 	/* ---- wizard state (always asked on build/renew) ---- */
-	// svelte-ignore state_referenced_locally — intentional: seed wizard state once from SSR data
-	const hadPlan = data.days.length > 0;
-	// svelte-ignore state_referenced_locally
-	const initRun = data.prefs?.runDays?.length ? [...data.prefs.runDays] : [1, 2, 4, 5, 6];
-	// svelte-ignore state_referenced_locally
-	const initKinds: Record<number, string> = data.prefs?.kinds ? { ...data.prefs.kinds } : {};
-	let open = $state(!hadPlan);
-	const prefs = $state({
-		runDays: initRun,
-		kinds: initKinds as Record<number, string>
-	});
+	// Derived from the SSR payload (never capture `data` at init); the mutable
+	// draft materialises on the user's first edit, so saved prefs stay the default.
+	let userOpen = $state(false);
+	const wizardOpen = $derived(data.days.length === 0 || userOpen);
+	let prefsDraft: { runDays: number[]; kinds: Record<number, string> } | null = $state(null);
+	const prefs = $derived(
+		prefsDraft ?? {
+			runDays: data.prefs?.runDays?.length ? [...data.prefs.runDays] : [1, 2, 4, 5, 6],
+			kinds: (data.prefs?.kinds ? { ...data.prefs.kinds } : {}) as Record<number, string>
+		}
+	);
+	function draft(): NonNullable<typeof prefsDraft> {
+		if (!prefsDraft) {
+			const p = data.prefs;
+			prefsDraft = {
+				runDays: p?.runDays?.length ? [...p.runDays] : [1, 2, 4, 5, 6],
+				kinds: p?.kinds ? { ...p.kinds } : {}
+			};
+		}
+		return prefsDraft;
+	}
 	let busy = $state(false);
 	let msg: string | null = $state(null);
 
@@ -48,16 +58,18 @@
 	const sortedRun = $derived([...prefs.runDays].sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b)));
 
 	function toggleRun(d: number) {
-		if (prefs.runDays.includes(d)) {
-			prefs.runDays = prefs.runDays.filter((x) => x !== d);
-			delete prefs.kinds[d];
+		const p = draft();
+		if (p.runDays.includes(d)) {
+			p.runDays = p.runDays.filter((x) => x !== d);
+			delete p.kinds[d];
 		} else {
-			prefs.runDays = [...prefs.runDays, d];
+			p.runDays = [...p.runDays, d];
 		}
 	}
 	function setKind(d: number, k: string) {
-		if (k === kindOf(d)) delete prefs.kinds[d];
-		else prefs.kinds[d] = k;
+		const p = draft();
+		if (k === p.kinds[d]) delete p.kinds[d];
+		else p.kinds[d] = k;
 	}
 	async function swapSession(planDate: string, kind: string) {
 		busy = true;
@@ -121,7 +133,8 @@
 			const body = await genRes.json();
 			if (!genRes.ok) throw new Error(body.message ?? 'generate failed');
 			data = body;
-			open = false;
+			userOpen = false;
+			prefsDraft = null;
 			msg = 'Plan built from your answers.';
 		} catch (err) {
 			msg = err instanceof Error ? err.message : 'build failed';
@@ -169,12 +182,12 @@
 <div class="card">
 	<div style="display:flex;justify-content:space-between;align-items:center">
 		<h2 style="margin:0">{data.days.length ? 'Your week' : 'No plan yet'}</h2>
-		<button class="btn ghost" style="width:auto;padding:8px 14px" onclick={() => (open = !open)}>
-			{open ? 'Close' : data.days.length ? 'Renew my plan' : 'Build my plan'}
+		<button class="btn ghost" style="width:auto;padding:8px 14px" onclick={() => (userOpen = !userOpen)}>
+			{wizardOpen ? 'Close' : data.days.length ? 'Renew my plan' : 'Build my plan'}
 		</button>
 	</div>
 
-	{#if open}
+	{#if wizardOpen}
 		<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:6px">
 			<p class="subtle">Tell me how your week looks and I'll fit the plan to it.</p>
 
