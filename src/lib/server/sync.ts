@@ -151,6 +151,67 @@ async function captureStreams(id: number, nowSec: number): Promise<void> {
 		 ON CONFLICT(strava_id) DO UPDATE SET streams=excluded.streams, fetched_at=excluded.fetched_at`,
 		[id, jsonCol(data), nowSec]
 	);
+	// mirror into the hypertable (activity_samples) for time-series queries
+	const act = await dbGet<{ start_date: string | null }>('SELECT start_date FROM activities WHERE strava_id = ?', [id]);
+	if (act?.start_date) await captureSamples(id, act.start_date, data).catch(() => undefined);
+}
+
+/** Unpack a key_by_type streams payload into hypertable sample rows and
+ *  insert them (aligned by index on the `time` stream). Best-effort. */
+async function captureSamples(id: number, startDateIso: string, raw: Record<string, unknown>): Promise<void> {
+	const payload = raw as unknown as Record<string, { data?: unknown[] }>;
+	const time = payload.time?.data;
+	if (!Array.isArray(time) || time.length === 0) return;
+	const n = time.length;
+	const get = (k: string) => {
+		const a = payload[k]?.data;
+		return Array.isArray(a) && a.length === n ? (a as unknown[]) : null;
+	};
+	const dist = get('distance') as number[] | null;
+	const alt = get('altitude') as number[] | null;
+	const vel = get('velocity_smooth') as number[] | null;
+	const hr = get('heartrate') as number[] | null;
+	const cad = get('cadence') as number[] | null;
+	const temp = get('temp') as number[] | null;
+	const watts = get('watts') as number[] | null;
+	const moving = get('moving') as boolean[] | null;
+	const grade = get('grade_smooth') as number[] | null;
+	const ll = get('latlng') as [number, number][] | null;
+	const start = new Date(startDateIso);
+	if (Number.isNaN(start.getTime())) return;
+	const rows: unknown[] = [];
+	const mk = (i: number) => {
+		const p = ll?.[i];
+		return [
+			id,
+			new Date(start.getTime() + (time[i] as number) * 1000),
+			time[i],
+			dist?.[i] ?? null,
+			Array.isArray(p) ? p[0] : null,
+			Array.isArray(p) ? p[1] : null,
+			alt?.[i] ?? null,
+			vel?.[i] ?? null,
+			hr?.[i] != null ? Math.round(hr[i]) : null,
+			cad?.[i] != null ? Math.round(cad[i]) : null,
+			temp?.[i] != null ? Math.round(temp[i]) : null,
+			watts?.[i] ?? null,
+			moving?.[i] ?? null,
+			grade?.[i] ?? null
+		];
+	};
+	for (let i = 0; i < n; i++) rows.push(mk(i));
+	const BATCH = 800;
+	for (let i = 0; i < rows.length; i += BATCH) {
+		const chunk = rows.slice(i, i + BATCH);
+		const placeholders = chunk
+			.map((_, r) => `(${chunk[0].map((_, c) => `$${r * chunk[0].length + c + 1}`).join(',')})`)
+			.join(',');
+		await dbRun(
+			`INSERT INTO activity_samples (activity_id, ts, t_sec, dist_m, lat, lng, alt_m, vel_m_s, hr, cad, temp_c, watts, moving, grade)
+			 VALUES ${placeholders} ON CONFLICT DO NOTHING`,
+			chunk.flat()
+		);
+	}
 }
 
 async function captureAthlete(nowSec: number): Promise<void> {
