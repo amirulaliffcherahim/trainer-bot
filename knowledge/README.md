@@ -15,6 +15,11 @@ by heading into `kb_chunks`, keyed by folder name.
 | `triathlon/` | — | ⛔ scaffold only — no persona yet |
 | `nutrition/` | — | ⛔ scaffold only — no persona yet |
 | `vdot_engine/` | — | 🛠 product research (not coach KB) — no persona |
+| `features_and_ideas/` | — | 🛠 product research (not coach KB) — no persona |
+
+`features_and_ideas/` is competitive feature/UX reference for the app itself
+(Runna / Strava / V.O2 support sites, crawled 2026-09) — see its own README.
+Like `vdot_engine/`, never wire it into coach retrieval.
 
 `vdot_engine/` holds engineering research for building our own Strava-driven
 plan app (vdoto2.com calculator math, decoded) — technical reference, not
