@@ -163,7 +163,8 @@ import { fmt_time } from '$lib/vdot';
 							{#if p.status === 'done'}<span class="tag ok">Completed</span>
 							{:else if p.status === 'partial'}<span class="tag warn">Modified</span>
 							{:else if p.status === 'missed'}<span class="tag err">Missed</span>
-							{:else if p.status === 'extra'}<span class="tag">Extra run</span>{/if}
+							{:else if p.status === 'extra'}<span class="tag">Extra run</span>
+							{:else if p.status === 'planned'}<span class="tag">today</span>{/if}
 						</div>
 						{#if p.session.kind !== 'rest'}
 							<span class="subtle">{p.session.label}</span>

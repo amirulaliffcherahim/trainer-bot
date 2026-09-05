@@ -36,8 +36,8 @@ const fmtPace = (sPerKm: number) => {
 	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-export function raceBriefing(event: PlanEvent, vdotVal: number | null): RaceBriefing {
-	const now = new Date();
+export function raceBriefing(event: PlanEvent, vdotVal: number | null, today?: string): RaceBriefing {
+	const now = today ? new Date(today + 'T00:00:00') : new Date();
 	now.setHours(0, 0, 0, 0);
 	const daysTo = Math.max(0, Math.round((new Date(event.event_date + 'T00:00:00').getTime() - now.getTime()) / 86400000));
 	const fromTarget = event.target_time_min != null && event.target_time_min > 0;

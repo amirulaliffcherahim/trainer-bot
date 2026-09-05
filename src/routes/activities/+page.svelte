@@ -67,20 +67,25 @@
 
 {#each data.activities as a (a.strava_id)}
 	<div class="card" style="padding:12px 14px">
-		<button class="row" style="width:100%;border:0;background:none;cursor:pointer;text-align:left;padding:0;gap:8px" onclick={() => openAct(a)}>
-			<span style="flex:1;min-width:0">
-				<span style="font-weight:700">{a.name}</span><br>
-				<span class="subtle">{day(a.start_date_local)} · {dist(a.distance)}
-					{#if a.pace_sec_km} · {psec(a.pace_sec_km)}/km{/if}
-					{#if a.average_heartrate} · {Math.round(a.average_heartrate)} bpm avg{/if}
+		<div class="row act-row">
+			<button class="act-toggle" aria-expanded={openId === a.strava_id} onclick={() => openAct(a)}>
+				<span style="flex:1;min-width:0">
+					<span style="font-weight:700">{a.name}</span><br>
+					<span class="subtle">{day(a.start_date_local)} · {dist(a.distance)}
+						{#if a.pace_sec_km} · {psec(a.pace_sec_km)}/km{/if}
+						{#if a.average_heartrate} · {Math.round(a.average_heartrate)} bpm avg{/if}
+					</span>
 				</span>
-			</span>
-			<span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+				<span class="act-chev {openId === a.strava_id ? 'open' : ''}" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+				</span>
+			</button>
+			<span class="act-side">
 				{#if a.feedback}<span class="tag">effort {a.feedback.rpe ? a.feedback.rpe + '/10' : a.feedback.felt}</span>
 				{:else}<span class="tag warn">needs feedback</span>{/if}
-				<a class="tag" href={`/activity/${a.strava_id}`} style="text-decoration:none">charts</a>
+				<a class="tag charts" href={`/activity/${a.strava_id}`}>charts</a>
 			</span>
-		</button>
+		</div>
 
 		{#if openId === a.strava_id}
 			<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px">

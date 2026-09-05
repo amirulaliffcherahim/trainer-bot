@@ -21,11 +21,12 @@ describe('race briefing', () => {
 	});
 
 	it('taper table shows only the weeks still ahead', () => {
-		const in10 = { ...HM, event_date: '2026-09-13' }; // ~10 days out
-		const b10 = raceBriefing(in10, 50);
+		const base = '2026-09-05';
+		const in10 = { ...HM, event_date: '2026-09-13' }; // 8 days out from base
+		const b10 = raceBriefing(in10, 50, base);
 		expect(b10.taper.map((t) => t.out).sort()).toEqual([1, 2]);
-		const in40 = { ...HM, event_date: '2026-10-13' };
-		const b40 = raceBriefing(in40, 50);
+		const in40 = { ...HM, event_date: '2026-10-13' }; // 38 days out from base
+		const b40 = raceBriefing(in40, 50, base);
 		expect(b40.taper.map((t) => t.out)).toEqual([3, 2, 1]);
 	});
 

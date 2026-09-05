@@ -62,6 +62,19 @@ export function matchPlan(sessions: Session[], acts: ActBrief[], today?: string)
 				return { session, status: ratio >= 0.9 ? 'done' : ratio >= 0.5 ? 'partial' : 'missed' };
 			});
 
+		// Today is not a failure: the day is still in progress. Without a run
+		// yet, today's session stays 'planned' (never red); a short run today
+		// counts as 'partial', not 'missed'. Only a strictly PAST day yields
+		// 'missed'. Legacy callers that pass no `today` keep the old behaviour.
+		if (today) {
+			for (const p of planned) {
+				if (p.session.kind === 'rest') continue;
+				if (p.status === 'missed' && p.session.plan_date >= today) {
+					p.status = p.session.plan_date === today && runs.length > 0 ? 'partial' : 'planned';
+				}
+			}
+		}
+
 		// Extras = runs not consumed by a run-session match, or any run on a
 		// day whose plan has no run session (rest-flag included on rest rows).
 		const hasRunTarget = planned.some((p) => isRunKind(p.session.kind) && p.status !== 'missed');

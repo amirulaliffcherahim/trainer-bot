@@ -200,14 +200,14 @@
 
 			<span class="lbl">Goal race (optional) — category & date</span>
 			<div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
-				<div style="display:flex;gap:8px">
-					<input class="inp" placeholder="Name (e.g. KL Marathon)" bind:value={evName} style="flex:1.4" />
-					<input class="inp" placeholder="Category (5K / HM…)" bind:value={evCat} style="flex:1" />
+				<div style="display:flex;gap:8px;flex-wrap:wrap">
+					<input class="inp" placeholder="Name (e.g. KL Marathon)" bind:value={evName} style="flex:1.4;min-width:180px" />
+					<input class="inp" placeholder="Category (5K / HM…)" bind:value={evCat} style="flex:1;min-width:120px" />
 				</div>
-				<div style="display:flex;gap:8px">
-					<input class="inp" type="date" bind:value={evDate} style="flex:1" />
-					<input class="inp" inputmode="decimal" placeholder="km" bind:value={evKm} style="width:80px" />
-					<input class="inp" inputmode="numeric" placeholder="target min" bind:value={evTarget} style="width:110px" />
+				<input class="inp" type="date" bind:value={evDate} style="width:100%" />
+				<div style="display:flex;gap:8px;flex-wrap:wrap">
+					<input class="inp" inputmode="decimal" placeholder="distance km" bind:value={evKm} style="flex:1;min-width:110px" />
+					<input class="inp" inputmode="numeric" placeholder="target min (optional)" bind:value={evTarget} style="flex:1;min-width:150px" />
 				</div>
 				{#if evErr}<p class="subtle">{evErr}</p>{/if}
 				<button class="btn ghost" style="width:auto" onclick={addRace} disabled={!evName || !evDate || !evKm}>Add race</button>
@@ -245,7 +245,7 @@
 							<div class="dline">
 								<span class="dkind">{KIND[p.session.kind] ?? p.session.kind}</span>
 								{#if dist(p.session.distance_m)} <span class="subtle">{dist(p.session.distance_m)}</span>{/if}
-								{#if paceBand(p.session)} <span class="subtle">@{paceBand(p.session)}/km</span>{/if}
+								{#if paceBand(p.session)} <span class="tag">{paceBand(p.session)}/km</span>{/if}
 								{#if p.session.kind === 'rest'} <span class="subtle">· {p.session.reason}</span>{/if}
 							</div>
 						{/each}

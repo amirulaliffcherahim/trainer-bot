@@ -20,7 +20,7 @@
 	--maxw: 640px;
 	--notice-bg: #eef2ff;
 	--notice-line: #c7d2fe;
-	--notice-ink: #3730a3;
+	--notice-ink: #1e1b4b;
 	--tag-ok-bg: #dcfce7;
 	--tag-ok-ink: #15803d;
 	--tag-warn-bg: #fef3c7;
@@ -142,7 +142,7 @@ header.app-head {
 	font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
 }
 .tag.ok { background: var(--tag-ok-bg); color: var(--tag-ok-ink); }
-.tag.warn { background: var(--tag-warn-bg); color: var(--tag-warn-ink); }
+.tag.warn { background: var(--tag-warn-bg); color: var(--tag-warn-ink); font-weight: 800; }
 .tag.err { background: var(--tag-err-bg); color: var(--tag-err-ink); }
 .tag.strava { background: var(--tag-strava-bg); color: var(--tag-strava-ink); }
 /* plain .tag (e.g. "ran on rest") stays neutral */
@@ -174,14 +174,20 @@ nav.tabbar .tab .ic { font-size: 1.25rem; line-height: 1; display: flex; }
 nav.tabbar .tab .ic svg { width: 23px; height: 23px; }
 
 .notice {
-	background: var(--notice-bg); border: 1px solid var(--notice-line); color: var(--notice-ink);
+	background: var(--notice-bg); border: 1.5px solid var(--notice-line); color: var(--notice-ink);
 	border-radius: var(--radius-sm); padding: 10px 14px; font-size: 0.9rem; margin-bottom: 12px;
+}
+
+/* dark-mode map tiles: invert the light OSM layer to match the surface */
+[data-theme='dark'] .leaflet-tile-pane {
+	filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
 }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .chip {
 	border: 1px solid var(--line); background: var(--bg); color: var(--ink);
-	padding: 7px 12px; border-radius: 999px; font-size: 0.9rem; font-weight: 600;
+	padding: 6px 14px; min-height: 34px; display: inline-flex; align-items: center;
+	border-radius: 999px; font-size: 0.9rem; font-weight: 600;
 	cursor: pointer; user-select: none;
 }
 .chip.on { background: var(--accent-grad); color: #fff; border-color: transparent; }
@@ -195,6 +201,28 @@ select.inp, input.inp {
 /* plan calendar */
 .racebanner { border-left: 4px solid var(--strava); }
 .raceb-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+/* activity list rows — toggle is its own button, charts is a sibling link */
+.act-row { align-items: stretch; padding: 0; }
+.act-toggle {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	text-align: left;
+	background: none;
+	border: 0;
+	cursor: pointer;
+	padding: 8px 0;
+	color: var(--ink);
+}
+.act-side { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
+.act-side .charts { padding: 4px 10px; }
+.act-chev { color: var(--ink-soft); display: flex; transition: transform 0.18s ease; }
+.act-chev svg { width: 18px; height: 18px; }
+.act-chev.open { transform: rotate(180deg); }
 .calhead {
 	display: flex; justify-content: space-between; align-items: baseline;
 	gap: 8px; margin-bottom: 6px; flex-wrap: wrap;
@@ -214,5 +242,5 @@ select.inp, input.inp {
 .dkind { font-weight: 600; }
 .dstatus { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .swapchips { margin: 5px 0 0 64px; gap: 4px; }
-.chip.sm { padding: 3px 9px; font-size: 0.72rem; }
+.chip.sm { min-height: 32px; padding: 4px 10px; font-size: 0.72rem; }
 .dayextra { margin: 5px 0 0 64px; }

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { fmt_pace, fmt_time } from '$lib/vdot';
+	import { onMount } from 'svelte';
 	let { data } = $props();
 
 	const eq = $derived([
@@ -10,6 +11,28 @@
 		{ key: '5k', label: '5K' },
 		{ key: 'mile', label: 'Mile' }
 	]);
+
+	/* unit preference — km default, persisted like the theme toggle */
+	let unit = $state<'km' | 'mi'>('km');
+	const paceKm = (perMi: number) => fmt_pace(perMi / 1.609344);
+	const pace = (perMi: number) => (unit === 'km' ? paceKm(perMi) : fmt_pace(perMi));
+	function setUnit(u: 'km' | 'mi') {
+		unit = u;
+		try {
+			localStorage.setItem('tb-units', u);
+		} catch {
+			/* ignore */
+		}
+	}
+	onMount(() => {
+		let stored: string | null = null;
+		try {
+			stored = localStorage.getItem('tb-units');
+		} catch {
+			/* ignore */
+		}
+		if (stored === 'km' || stored === 'mi') unit = stored;
+	});
 </script>
 
 <svelte:head><title>Fitness — trainer·bot</title></svelte:head>
@@ -35,22 +58,27 @@
 	</div>
 
 	<div class="card">
-		<h2>Training paces</h2>
+		<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+			<h2 style="margin:0">Training paces</h2>
+			<div class="chips" style="margin:0">
+				<button class="chip {unit === 'km' ? 'on' : ''}" onclick={() => setUnit('km')} aria-pressed={unit === 'km'}>km</button>
+				<button class="chip {unit === 'mi' ? 'on' : ''}" onclick={() => setUnit('mi')} aria-pressed={unit === 'mi'}>mi</button>
+			</div>
+		</div>
 		<table class="tbl">
 			<thead>
-				<tr><th>Type</th><th class="num">min/mi</th><th class="num">min/km</th></tr>
+				<tr><th>Type</th><th class="num">{unit === 'km' ? 'min/km' : 'min/mi'}</th></tr>
 			</thead>
 			<tbody>
 				<tr>
 					<td>Easy</td>
-					<td class="num">{fmt_pace(data.derived.paces.easy.slow)}–{fmt_pace(data.derived.paces.easy.fast)}</td>
-					<td class="num">{fmt_pace(data.derived.paces.easy.slow / 1.609344)}–{fmt_pace(data.derived.paces.easy.fast / 1.609344)}</td>
+					<td class="num">{pace(data.derived.paces.easy.slow)}–{pace(data.derived.paces.easy.fast)}</td>
 				</tr>
-				<tr><td>Marathon</td><td class="num">{fmt_pace(data.derived.paces.marathon)}</td><td class="num">{fmt_pace(data.derived.paces.marathon / 1.609344)}</td></tr>
-				<tr><td>Threshold</td><td class="num">{fmt_pace(data.derived.paces.threshold)}</td><td class="num">{fmt_pace(data.derived.paces.threshold / 1.609344)}</td></tr>
-				<tr><td>Interval</td><td class="num">{fmt_pace(data.derived.paces.interval)}</td><td class="num">{fmt_pace(data.derived.paces.interval / 1.609344)}</td></tr>
-				<tr><td>Repetition</td><td class="num">{fmt_pace(data.derived.paces.repetition)}</td><td class="num">{fmt_pace(data.derived.paces.repetition / 1.609344)}</td></tr>
-				<tr><td>Fast reps</td><td class="num">{fmt_pace(data.derived.paces.fast_reps)}</td><td class="num">{fmt_pace(data.derived.paces.fast_reps / 1.609344)}</td></tr>
+				<tr><td>Marathon</td><td class="num">{pace(data.derived.paces.marathon)}</td></tr>
+				<tr><td>Threshold</td><td class="num">{pace(data.derived.paces.threshold)}</td></tr>
+				<tr><td>Interval</td><td class="num">{pace(data.derived.paces.interval)}</td></tr>
+				<tr><td>Repetition</td><td class="num">{pace(data.derived.paces.repetition)}</td></tr>
+				<tr><td>Fast reps</td><td class="num">{pace(data.derived.paces.fast_reps)}</td></tr>
 			</tbody>
 		</table>
 	</div>

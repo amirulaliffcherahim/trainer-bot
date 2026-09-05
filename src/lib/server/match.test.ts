@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { matchPlan, type ActBrief } from './match';
 import type { Session } from './plan';
+import { addDays } from './plan';
 
 const act = (over: Partial<ActBrief>): ActBrief => ({
 	strava_id: 1,
@@ -51,6 +52,22 @@ describe('matchPlan', () => {
 		const days = matchPlan([future, rest], [], '2026-09-07');
 		expect(days[0].planned[0].status).toBe('planned');
 		expect(days[1].planned[0].status).toBe('planned');
+	});
+
+	it('today is not a failure: no run yet = planned, short run = partial', () => {
+		const today = '2026-09-07';
+		const none = matchPlan([sess({ plan_date: today, distance_m: 10000 })], [], today);
+		expect(none[0].planned[0].status).toBe('planned'); // woke up, haven't run — never red
+		const forty = matchPlan([sess({ plan_date: today, distance_m: 10000 })], [act({ strava_id: 5, distance: 4000 })], today);
+		expect(forty[0].planned[0].status).toBe('partial'); // 40% today — not missed
+		const full = matchPlan([sess({ plan_date: today, distance_m: 10000 })], [act({ strava_id: 6, distance: 9500 })], today);
+		expect(full[0].planned[0].status).toBe('done');
+	});
+
+	it('a strictly past day with no run still surfaces as missed', () => {
+		const yesterday = addDays('2026-09-07', -1);
+		const days = matchPlan([sess({ plan_date: yesterday, distance_m: 10000 })], [], '2026-09-07');
+		expect(days[0].planned[0].status).toBe('missed');
 	});
 
 	it('ignores trainer / commute / manual activities entirely', () => {
