@@ -12,6 +12,7 @@ keep out of RAG (same rule as `vdot_engine/`).
 | `runna_training_hub.md` | Runna Training Hub | Coaching methods to encode: heat pace math, long-run archetypes, deload cadence, 10% rule, 80:20 by frequency, taper, RPE, plan lengths |
 | `strava_features.md` | Strava support | Stats/activity features: Best Efforts, zones, Relative Effort, Fitness & Freshness, Predictions, goals, monthly recap |
 | `vdoto2_app_features.md` | V.O2 support | VDOT-app features: accuracy scoring, stats, planned-vs-completed, paces, age rank |
+| `strava_api_data.md` | developers.strava.com | Full Strava v3 API data catalog: what you can capture per activity (detail-only fields), streams, athlete stats, scopes, rate limits, storage rules |
 | `ideas_for_trainer_bot.md` | synthesis | Prioritised candidate backlog mapped to what we already ship |
 
 ## How to use
