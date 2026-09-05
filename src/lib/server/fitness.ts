@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { dbAll, dbGet, dbRun } from './db';
 import { build_result, vdot, type VdotResult } from '../vdot';
 
 /** PB scan → VO₂ anchor (est.).
@@ -31,19 +31,18 @@ export interface FitnessSnapshot {
 }
 
 /** Pick the best-effort activity rows within the recency window. */
-export function candidateEfforts(nowSec: number): ActivityRow[] {
+export async function candidateEfforts(nowSec: number): Promise<ActivityRow[]> {
 	const cutoff = new Date((nowSec - RECENCY_DAYS * 86400) * 1000).toISOString();
-	const rows = getDb()
-		.prepare(
-			`SELECT strava_id, name, distance, moving_time, start_date_local, average_heartrate
-			 FROM activities
-			 WHERE trainer = 0 AND commute = 0 AND manual = 0
-			   AND moving_time > 0 AND moving_time <= 4 * 3600
-			   AND distance >= 4000 AND distance <= 60000
-			   AND COALESCE(start_date, '') >= ?
-			 ORDER BY distance`
-		)
-		.all(cutoff) as unknown as ActivityRow[];
+	const rows = await dbAll<ActivityRow>(
+		`SELECT strava_id, name, distance, moving_time, start_date_local, average_heartrate
+		 FROM activities
+		 WHERE trainer = 0 AND commute = 0 AND manual = 0
+		   AND moving_time > 0 AND moving_time <= 4 * 3600
+		   AND distance >= 4000 AND distance <= 60000
+		   AND COALESCE(start_date, '') >= ?
+		 ORDER BY distance`,
+		[cutoff]
+	);
 	const bestByBucket = new Map<number, ActivityRow>();
 	for (const r of rows) {
 		// nearest bucket within ±15%
@@ -66,8 +65,8 @@ export function candidateEfforts(nowSec: number): ActivityRow[] {
 }
 
 /** Compute + persist a snapshot if the best VDOT improved (or is new). */
-export function recomputeFitness(nowSec: number): FitnessSnapshot | null {
-	const efforts = candidateEfforts(nowSec);
+export async function recomputeFitness(nowSec: number): Promise<FitnessSnapshot | null> {
+	const efforts = await candidateEfforts(nowSec);
 	if (efforts.length === 0) return null;
 	let best: { row: ActivityRow; vdot: number } | null = null;
 	for (const r of efforts) {
@@ -76,61 +75,56 @@ export function recomputeFitness(nowSec: number): FitnessSnapshot | null {
 	}
 	if (!best) return null;
 
-	const db = getDb();
-	const latest = latestSnapshot();
+	const latest = await latestSnapshot();
 	const changed =
 		!latest ||
 		Math.abs(latest.vdot - best.vdot) > 0.05 ||
 		latest.source_strava_id !== best.row.strava_id;
 
 	if (changed) {
-		const res = db
-			.prepare(
-				`INSERT INTO vdot_snapshots
-				 (vdot, source_strava_id, source_distance, source_time_min, source_date, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?)`
-			)
-			.run(
+		const res = await dbRun(
+			`INSERT INTO vdot_snapshots
+			 (vdot, source_strava_id, source_distance, source_time_min, source_date, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			[
 				best.vdot,
 				best.row.strava_id,
 				best.row.distance,
 				best.row.moving_time / 60,
 				best.row.start_date_local?.slice(0, 10) ?? null,
 				nowSec
-			);
-		return snapshotById(Number(res.lastInsertRowid));
+			]
+		);
+		return snapshotById(res.lastInsertRowid);
 	}
 	return latest;
 }
 
-export function latestSnapshot(): FitnessSnapshot | null {
-	return snapshotById(
-		(
-			getDb().prepare('SELECT MAX(id) AS id FROM vdot_snapshots').get() as { id: number | null }
-		).id
-	);
+export async function latestSnapshot(): Promise<FitnessSnapshot | null> {
+	const row = await dbGet<{ id: number | null }>('SELECT MAX(id) AS id FROM vdot_snapshots');
+	return snapshotById(row?.id ?? null);
 }
 
-export function snapshotById(id: number | null): FitnessSnapshot | null {
+export async function snapshotById(id: number | null): Promise<FitnessSnapshot | null> {
 	if (id === null) return null;
-	const row = getDb()
-		.prepare(
-			`SELECT s.*, a.name AS source_name
-			 FROM vdot_snapshots s LEFT JOIN activities a ON a.strava_id = s.source_strava_id
-			 WHERE s.id = ?`
-		)
-		.get(id) as (FitnessSnapshot & { source_name: string | null }) | undefined;
+	const row = await dbGet<FitnessSnapshot & { source_name: string | null }>(
+		`SELECT s.*, a.name AS source_name
+		 FROM vdot_snapshots s LEFT JOIN activities a ON a.strava_id = s.source_strava_id
+		 WHERE s.id = ?`,
+		[id]
+	);
 	if (!row) return null;
 	const { source_name, ...rest } = row;
 	return { ...rest, source_name: source_name ?? undefined };
 }
 
 /** Snapshot + derived VDOT table for the Fitness view. */
-export function fitnessView(): { snapshot: FitnessSnapshot | null; derived: VdotResult | null } {
-	const s = latestSnapshot();
+export async function fitnessView(): Promise<{ snapshot: FitnessSnapshot | null; derived: VdotResult | null }> {
+	const s = await latestSnapshot();
 	return { snapshot: s, derived: s ? build_result(s.vdot) : null };
 }
 
-export function activityCount(): number {
-	return (getDb().prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number }).n;
+export async function activityCount(): Promise<number> {
+	const row = await dbGet<{ n: number }>('SELECT COUNT(*) AS n FROM activities');
+	return row?.n ?? 0;
 }

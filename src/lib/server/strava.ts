@@ -65,7 +65,7 @@ async function exchange(params: Record<string, string>): Promise<void> {
 		scope?: string;
 		athlete?: { id: number; firstname?: string; lastname?: string };
 	};
-	putToken({
+	await putToken({
 		access_token: data.access_token,
 		refresh_token: data.refresh_token, // rotation: persist THIS one
 		expires_at: data.expires_at,
@@ -88,7 +88,7 @@ export async function exchangeCode(code: string): Promise<void> {
 
 async function refresh(): Promise<void> {
 	const cfg = stravaConfig();
-	const t = getToken();
+	const t = await getToken();
 	if (!cfg || !t) throw new StravaError('No token to refresh', 401);
 	await exchange({
 		grant_type: 'refresh_token',
@@ -99,13 +99,13 @@ async function refresh(): Promise<void> {
 }
 
 async function accessToken(): Promise<string> {
-	const t = getToken();
+	const t = await getToken();
 	if (!t) throw new StravaError('Not connected to Strava', 401);
 	// Refresh when expired or expiring within the hour (Strava's guidance).
 	const nowSec = Math.floor(Date.now() / 1000);
 	if (t.expires_at - nowSec <= 3600) {
 		await refresh();
-		return getToken()!.access_token;
+		return (await getToken())!.access_token;
 	}
 	return t.access_token;
 }
@@ -134,11 +134,11 @@ export async function apiGet<T>(path: string): Promise<ApiResponse<T>> {
 		// never destroy stored tokens — a permanent 401 usually means
 		// insufficient scope, which only a fresh consent can fix.
 		await refresh();
-		token = getToken()!.access_token;
+		token = (await getToken())!.access_token;
 		res = await doGet(token);
 	}
 	if (res.status === 401) {
-		const scope = getToken()?.scope ?? '';
+		const scope = (await getToken())?.scope ?? '';
 		throw new StravaError(
 			`Strava authorization problem (401). Granted scopes: ${scope || 'none'} — ` +
 				'connect again in Settings to request activity:read.',
@@ -157,7 +157,7 @@ export async function apiGet<T>(path: string): Promise<ApiResponse<T>> {
 
 /** Remove the app's access (deauthorize on Strava side too, best-effort). */
 export async function disconnect(): Promise<void> {
-	const t = getToken();
+	const t = await getToken();
 	if (t) {
 		try {
 			const cfg = stravaConfig();
@@ -169,5 +169,5 @@ export async function disconnect(): Promise<void> {
 			// best-effort — local disconnect still happens
 		}
 	}
-	clearToken();
+	await clearToken();
 }

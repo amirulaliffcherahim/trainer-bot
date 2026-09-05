@@ -6,15 +6,15 @@ import { recomputeFitness, latestSnapshot } from '$lib/server/fitness';
 import { StravaError } from '$lib/server/strava';
 
 export const POST: RequestHandler = async () => {
-	if (!getToken()) {
+	if (!(await getToken())) {
 		throw error(401, 'Not connected to Strava');
 	}
 	try {
 		const result = await syncActivities();
-		const snapshot = recomputeFitness(Math.floor(Date.now() / 1000));
+		const snapshot = (await recomputeFitness(Math.floor(Date.now() / 1000))) ?? (await latestSnapshot());
 		return json({
 			synced: result,
-			snapshot: latestSnapshot() ?? snapshot,
+			snapshot,
 			summary:
 				snapshot === null
 					? 'Synced, but no PB-able effort found in recent activities yet.'

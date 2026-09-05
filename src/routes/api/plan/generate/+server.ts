@@ -6,7 +6,7 @@ import { planView } from '$lib/server/plan_store';
  *  current month, or through the active race's date — never taken from the client. */
 export const POST: RequestHandler = async () => {
 	try {
-		return json(planView(null, true));
+		return json(await planView(null, true));
 	} catch (err) {
 		throw error(500, err instanceof Error ? err.message : 'plan generation failed');
 	}

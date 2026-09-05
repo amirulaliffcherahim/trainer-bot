@@ -4,10 +4,10 @@ import { feedbackFor, recentActivities, saveFeedback } from '$lib/server/plan_st
 import { reviewActivity } from '$lib/server/review';
 import { latestSnapshot } from '$lib/server/fitness';
 
-export const GET: RequestHandler = () => {
-	const acts = recentActivities(60);
-	const vdotVal = latestSnapshot()?.vdot ?? null;
-	const fb = feedbackFor(acts.map((a) => a.strava_id));
+export const GET: RequestHandler = async () => {
+	const acts = await recentActivities(60);
+	const vdotVal = (await latestSnapshot())?.vdot ?? null;
+	const fb = await feedbackFor(acts.map((a) => a.strava_id));
 	return json({
 		has_vdot: vdotVal !== null,
 		activities: acts.map((a) => ({
@@ -25,7 +25,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const body = await request.json();
 		const strava_id = Number(body?.strava_id);
 		if (!Number.isInteger(strava_id) || strava_id <= 0) throw new Error('activity id required');
-		saveFeedback({
+		await saveFeedback({
 			strava_id,
 			rpe: body?.rpe != null && body.rpe !== '' ? Math.min(10, Math.max(1, Number(body.rpe))) : null,
 			felt: body?.felt ? String(body.felt) : null,

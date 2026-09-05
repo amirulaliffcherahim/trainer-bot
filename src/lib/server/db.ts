@@ -1,57 +1,65 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import pg from 'pg';
 
 /**
- * Single-user SQLite via node:sqlite (Node >= 22.5 built-in — no native
- * module build needed). Hand-written schema + forward-only migrations using
- * PRAGMA user_version (mirrors the old db.py pattern).
+ * Async, dual-dialect storage. `DATABASE_URL` set → PostgreSQL (primary in
+ * production); otherwise node:sqlite (dev/tests, no server needed).
+ *
+ * Both dialects speak the same call surface:
+ *   dbGet<T>(sql, params?)          → row | undefined
+ *   dbAll<T>(sql, params?)          → rows[]
+ *   dbRun(sql, params?)             → { changes, lastInsertRowid }
+ *   dbExec(sql)                     → multi-statement, no params
+ * Params may be positional arrays (`?`) or named objects (`@name` — keys
+ * WITHOUT the prefix, node:sqlite style) — translated to $n for Postgres.
  */
 
-export interface AppDb {
-	conn: DatabaseSync;
-	close: () => void;
+export type DbRow = Record<string, unknown>;
+export interface RunResult {
+	changes: number;
+	lastInsertRowid: number | null;
 }
 
-let singleton: DatabaseSync | null = null;
+const PG = process.env.DATABASE_URL;
+const DB_PATH = process.env.DB_PATH || 'trainer.db';
 
-export function getDb(): DatabaseSync {
-	if (singleton) return singleton;
-	const path = process.env.DB_PATH || 'trainer.db';
-	const conn = new DatabaseSync(path);
-	conn.exec('PRAGMA journal_mode = WAL;');
-	conn.exec('PRAGMA foreign_keys = ON;');
-	migrate(conn);
-	singleton = conn;
-	return conn;
+/* ---------------------------------------------------------------- types */
+
+/* Postgres int8 (BIGINT) arrives as a string by default — parse to number so
+ * strava_id / timestamps stay JS numbers like the sqlite path. */
+if (PG) {
+	pg.types.setTypeParser(20, (v: string | null) => (v === null ? null : Number(v)));
 }
 
-const MIGRATIONS: string[] = [
+/* ---------------------------------------------------------------- schema */
+
+const MIGRATIONS_SQLITE: string[] = [
 	// v1 — initial schema
 	`
 	CREATE TABLE strava_token (
 		id INTEGER PRIMARY KEY CHECK (id = 1),
 		access_token TEXT NOT NULL,
 		refresh_token TEXT NOT NULL,
-		expires_at INTEGER NOT NULL,        -- epoch seconds
+		expires_at INTEGER NOT NULL,
 		scope TEXT NOT NULL DEFAULT '',
 		athlete_id INTEGER,
 		athlete_name TEXT,
 		updated_at INTEGER NOT NULL
 	);
-
 	CREATE TABLE activities (
 		id INTEGER PRIMARY KEY,
 		strava_id INTEGER NOT NULL UNIQUE,
 		name TEXT NOT NULL DEFAULT '',
 		type TEXT,
 		sport_type TEXT,
-		start_date TEXT,                    -- UTC ISO
-		start_date_local TEXT,              -- athlete-local ISO (day grouping!)
+		start_date TEXT,
+		start_date_local TEXT,
 		timezone TEXT,
-		distance REAL NOT NULL DEFAULT 0,   -- meters
-		moving_time INTEGER NOT NULL DEFAULT 0,  -- seconds
+		distance REAL NOT NULL DEFAULT 0,
+		moving_time INTEGER NOT NULL DEFAULT 0,
 		elapsed_time INTEGER NOT NULL DEFAULT 0,
 		total_elevation_gain REAL DEFAULT 0,
-		average_speed REAL DEFAULT 0,       -- m/s
+		average_speed REAL DEFAULT 0,
 		max_speed REAL DEFAULT 0,
 		has_heartrate INTEGER NOT NULL DEFAULT 0,
 		average_heartrate REAL,
@@ -66,14 +74,13 @@ const MIGRATIONS: string[] = [
 	);
 	CREATE INDEX idx_activities_start_local ON activities(start_date_local);
 	CREATE INDEX idx_activities_distance ON activities(distance);
-
 	CREATE TABLE vdot_snapshots (
 		id INTEGER PRIMARY KEY,
 		vdot REAL NOT NULL,
 		source_strava_id INTEGER NOT NULL,
-		source_distance REAL NOT NULL,      -- meters
-		source_time_min REAL NOT NULL,      -- moving time, minutes
-		source_date TEXT,                   -- activity start_date_local date
+		source_distance REAL NOT NULL,
+		source_time_min REAL NOT NULL,
+		source_date TEXT,
 		created_at INTEGER NOT NULL
 	);
 	`,
@@ -83,22 +90,21 @@ const MIGRATIONS: string[] = [
 		id INTEGER PRIMARY KEY,
 		name TEXT NOT NULL,
 		distance_m REAL NOT NULL,
-		event_date TEXT NOT NULL,           -- 'YYYY-MM-DD' athlete-local
-		target_time_min REAL,               -- optional; null -> predict from VDOT
+		event_date TEXT NOT NULL,
+		target_time_min REAL,
 		created_at INTEGER NOT NULL
 	);
-
 	CREATE TABLE planned_sessions (
 		id INTEGER PRIMARY KEY,
-		plan_date TEXT NOT NULL,            -- 'YYYY-MM-DD' athlete-local
-		kind TEXT NOT NULL,                 -- easy|quality|interval|long|rest|race|recovery
+		plan_date TEXT NOT NULL,
+		kind TEXT NOT NULL,
 		label TEXT NOT NULL DEFAULT '',
-		distance_m REAL,                    -- meters (null when no VDOT anchor)
+		distance_m REAL,
 		duration_min REAL,
-		pace_min_s_km REAL,                 -- faster bound, seconds/km
-		pace_max_s_km REAL,                 -- slower bound, seconds/km
-		plan_week TEXT NOT NULL DEFAULT '', -- e.g. 2026-W36 or phase label
-		reason TEXT NOT NULL DEFAULT '',    -- KB citation
+		pace_min_s_km REAL,
+		pace_max_s_km REAL,
+		plan_week TEXT NOT NULL DEFAULT '',
+		reason TEXT NOT NULL DEFAULT '',
 		created_at INTEGER NOT NULL
 	);
 	CREATE INDEX idx_planned_date ON planned_sessions(plan_date);
@@ -106,20 +112,18 @@ const MIGRATIONS: string[] = [
 	// v3 — plan preferences, feedback, event category
 	`
 	ALTER TABLE events ADD COLUMN category TEXT;
-
 	CREATE TABLE plan_prefs (
 		id INTEGER PRIMARY KEY CHECK (id = 1),
-		run_days TEXT NOT NULL,     -- JSON array of weekday ints (0=Sun..6=Sat)
-		hard_days TEXT NOT NULL,    -- JSON array of weekday ints (subset of run_days)
+		run_days TEXT NOT NULL,
+		hard_days TEXT NOT NULL,
 		updated_at INTEGER NOT NULL
 	);
-
 	CREATE TABLE feedback (
 		id INTEGER PRIMARY KEY,
 		strava_id INTEGER NOT NULL UNIQUE,
-		rpe INTEGER,                -- felt effort 1..10
-		felt TEXT,                  -- easy|on|hard
-		soreness TEXT,              -- none|mild|noticeable|sharp
+		rpe INTEGER,
+		felt TEXT,
+		soreness TEXT,
 		note TEXT,
 		created_at INTEGER NOT NULL
 	);
@@ -127,27 +131,198 @@ const MIGRATIONS: string[] = [
 	// v4 — daily journal (S3)
 	`
 	CREATE TABLE journal (
-		date TEXT PRIMARY KEY,      -- 'YYYY-MM-DD' athlete-local
-		energy INTEGER,             -- 1..5
+		date TEXT PRIMARY KEY,
+		energy INTEGER,
 		sleep_h REAL,
-		soreness TEXT,              -- none|mild|noticeable|sharp
+		soreness TEXT,
 		note TEXT,
 		updated_at INTEGER NOT NULL
 	);
 	`,
-	// v5 — per-day workout kinds (user picks speed/long/tempo/easy)
+	// v5 — per-day workout kinds
 	`
 	ALTER TABLE plan_prefs ADD COLUMN kinds TEXT;
+	`,
+	// v6 — full Strava payload capture (own-data copy)
+	`
+	CREATE TABLE activity_detail (
+		strava_id INTEGER PRIMARY KEY,
+		payload TEXT NOT NULL,
+		fetched_at INTEGER NOT NULL
+	);
+	CREATE TABLE activity_streams (
+		strava_id INTEGER PRIMARY KEY,
+		streams TEXT NOT NULL,
+		fetched_at INTEGER NOT NULL
+	);
+	CREATE TABLE athlete_snapshot (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		payload TEXT NOT NULL,
+		fetched_at INTEGER NOT NULL
+	);
 	`
 ];
 
-function migrate(conn: DatabaseSync): void {
-	const row = conn.prepare('PRAGMA user_version').get() as { user_version: number };
-	let version = row.user_version;
-	while (version < MIGRATIONS.length) {
+const MIGRATIONS_PG: string[] = [
+	`
+	CREATE TABLE strava_token (
+		id BIGINT PRIMARY KEY CHECK (id = 1),
+		access_token TEXT NOT NULL,
+		refresh_token TEXT NOT NULL,
+		expires_at BIGINT NOT NULL,
+		scope TEXT NOT NULL DEFAULT '',
+		athlete_id BIGINT,
+		athlete_name TEXT,
+		updated_at BIGINT NOT NULL
+	);
+	CREATE TABLE activities (
+		id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+		strava_id BIGINT NOT NULL UNIQUE,
+		name TEXT NOT NULL DEFAULT '',
+		type TEXT,
+		sport_type TEXT,
+		start_date TEXT,
+		start_date_local TEXT,
+		timezone TEXT,
+		distance DOUBLE PRECISION NOT NULL DEFAULT 0,
+		moving_time INTEGER NOT NULL DEFAULT 0,
+		elapsed_time INTEGER NOT NULL DEFAULT 0,
+		total_elevation_gain DOUBLE PRECISION DEFAULT 0,
+		average_speed DOUBLE PRECISION DEFAULT 0,
+		max_speed DOUBLE PRECISION DEFAULT 0,
+		has_heartrate INTEGER NOT NULL DEFAULT 0,
+		average_heartrate DOUBLE PRECISION,
+		max_heartrate DOUBLE PRECISION,
+		calories DOUBLE PRECISION,
+		trainer INTEGER NOT NULL DEFAULT 0,
+		commute INTEGER NOT NULL DEFAULT 0,
+		manual INTEGER NOT NULL DEFAULT 0,
+		workout_type INTEGER,
+		pr_count INTEGER DEFAULT 0,
+		synced_at BIGINT NOT NULL
+	);
+	CREATE INDEX idx_activities_start_local ON activities(start_date_local);
+	CREATE INDEX idx_activities_distance ON activities(distance);
+	CREATE TABLE vdot_snapshots (
+		id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+		vdot DOUBLE PRECISION NOT NULL,
+		source_strava_id BIGINT NOT NULL,
+		source_distance DOUBLE PRECISION NOT NULL,
+		source_time_min DOUBLE PRECISION NOT NULL,
+		source_date TEXT,
+		created_at BIGINT NOT NULL
+	);
+	`,
+	`
+	CREATE TABLE events (
+		id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+		name TEXT NOT NULL,
+		distance_m DOUBLE PRECISION NOT NULL,
+		event_date TEXT NOT NULL,
+		target_time_min DOUBLE PRECISION,
+		created_at BIGINT NOT NULL
+	);
+	CREATE TABLE planned_sessions (
+		id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+		plan_date TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		label TEXT NOT NULL DEFAULT '',
+		distance_m DOUBLE PRECISION,
+		duration_min DOUBLE PRECISION,
+		pace_min_s_km DOUBLE PRECISION,
+		pace_max_s_km DOUBLE PRECISION,
+		plan_week TEXT NOT NULL DEFAULT '',
+		reason TEXT NOT NULL DEFAULT '',
+		created_at BIGINT NOT NULL
+	);
+	CREATE INDEX idx_planned_date ON planned_sessions(plan_date);
+	`,
+	`
+	ALTER TABLE events ADD COLUMN category TEXT;
+	CREATE TABLE plan_prefs (
+		id BIGINT PRIMARY KEY CHECK (id = 1),
+		run_days TEXT NOT NULL,
+		hard_days TEXT NOT NULL,
+		updated_at BIGINT NOT NULL
+	);
+	CREATE TABLE feedback (
+		id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+		strava_id BIGINT NOT NULL UNIQUE,
+		rpe INTEGER,
+		felt TEXT,
+		soreness TEXT,
+		note TEXT,
+		created_at BIGINT NOT NULL
+	);
+	`,
+	`
+	CREATE TABLE journal (
+		date TEXT PRIMARY KEY,
+		energy INTEGER,
+		sleep_h DOUBLE PRECISION,
+		soreness TEXT,
+		note TEXT,
+		updated_at BIGINT NOT NULL
+	);
+	`,
+	`
+	ALTER TABLE plan_prefs ADD COLUMN kinds TEXT;
+	`,
+	`
+	CREATE TABLE activity_detail (
+		strava_id BIGINT PRIMARY KEY,
+		payload JSONB NOT NULL,
+		fetched_at BIGINT NOT NULL
+	);
+	CREATE TABLE activity_streams (
+		strava_id BIGINT PRIMARY KEY,
+		streams JSONB NOT NULL,
+		fetched_at BIGINT NOT NULL
+	);
+	CREATE TABLE athlete_snapshot (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		payload JSONB NOT NULL,
+		fetched_at BIGINT NOT NULL
+	);
+	`
+];
+
+/* ------------------------------------------------------------- backends */
+
+interface Backend {
+	get(sql: string, params: unknown[] | Record<string, unknown>): Promise<DbRow | undefined>;
+	all(sql: string, params: unknown[] | Record<string, unknown>): Promise<DbRow[]>;
+	run(sql: string, params: unknown[] | Record<string, unknown>): Promise<RunResult>;
+	exec(sql: string): Promise<void>;
+	close(): Promise<void>;
+}
+
+function toNull(a: unknown[]): unknown[] {
+	return a.map((v) => (v === undefined ? null : v));
+}
+
+const sqliteArgs = (a: unknown[]) => toNull(a) as SQLInputValue[];
+const sqliteNamed = (o: Record<string, unknown>) => namedValues(o) as Record<string, SQLInputValue>;
+
+/** strip '-' from user-supplied values where the driver wants bare names */
+function namedValues(o: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(o)) out[k.replace(/^[:@$]/, '')] = v === undefined ? null : v;
+	return out;
+}
+
+/* -------- sqlite backend (node:sqlite is synchronous; wrap + serialize) */
+
+function sqliteBackend(path: string): Backend {
+	const conn = new DatabaseSync(path);
+	conn.exec('PRAGMA journal_mode = WAL;');
+	conn.exec('PRAGMA foreign_keys = ON;');
+
+	let version = (conn.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+	while (version < MIGRATIONS_SQLITE.length) {
 		conn.exec('BEGIN');
 		try {
-			conn.exec(MIGRATIONS[version]);
+			conn.exec(MIGRATIONS_SQLITE[version]);
 			version += 1;
 			conn.exec(`PRAGMA user_version = ${version}`);
 			conn.exec('COMMIT');
@@ -155,5 +330,243 @@ function migrate(conn: DatabaseSync): void {
 			conn.exec('ROLLBACK');
 			throw err;
 		}
+	}
+
+	// ops are synchronous, but callers interleave awaits — serialize so a
+	// BEGIN..COMMIT transaction can never be interleaved by another request.
+	let chain: Promise<unknown> = Promise.resolve();
+	const locked = <T>(fn: () => T): Promise<T> => {
+		const p = chain.then(fn);
+		chain = p.catch(() => undefined);
+		return p;
+	};
+
+	return {
+		get: (sql, params) =>
+			locked(() => {
+				const st = conn.prepare(sql);
+				const row = Array.isArray(params) ? st.get(...sqliteArgs(params)) : st.get(sqliteNamed(params as Record<string, unknown>));
+				return row === undefined ? undefined : (row as DbRow);
+			}),
+		all: (sql, params) =>
+			locked(() => {
+				const st = conn.prepare(sql);
+				const rows = Array.isArray(params) ? st.all(...sqliteArgs(params)) : st.all(sqliteNamed(params as Record<string, unknown>));
+				return rows as unknown as DbRow[];
+			}),
+		run: (sql, params) =>
+			locked(() => {
+				const st = conn.prepare(sql);
+				const res = Array.isArray(params)
+					? st.run(...sqliteArgs(params))
+					: st.run(sqliteNamed(params as Record<string, unknown>));
+				return { changes: Number(res.changes), lastInsertRowid: res.lastInsertRowid === null ? null : Number(res.lastInsertRowid) };
+			}),
+		exec: (sql) => locked(() => conn.exec(sql)),
+		close: () => locked(() => conn.close())
+	};
+}
+
+/* -------- postgres backend ------------------------------------------------ */
+
+function pgBackend(url: string): Backend {
+	const pool = new pg.Pool({ connectionString: url, max: 10 });
+	// connection is pinned while a transaction is open
+	let tx: pg.PoolClient | null = null;
+
+	async function conn(): Promise<pg.PoolClient | pg.Pool> {
+		return tx ?? pool;
+	}
+
+	function translate(sql: string, params: unknown[] | Record<string, unknown>): { text: string; values: unknown[] } {
+		if (Array.isArray(params)) {
+			// positional '?' -> $n, skipping question marks inside quotes
+			let n = 0;
+			let out = '';
+			let q: string | null = null;
+			for (const ch of sql) {
+				if (q) {
+					out += ch;
+					if (ch === q) q = null;
+					continue;
+				}
+				if (ch === "'" || ch === '"') {
+					q = ch;
+					out += ch;
+				} else if (ch === '?') {
+					n += 1;
+					out += `$${n}`;
+				} else {
+					out += ch;
+				}
+			}
+			return { text: out, values: toNull(params) };
+		}
+		// named '@name' -> $n (first-appearance order), keys without prefix
+		const vals = namedValues(params);
+		const map = new Map<string, number>();
+		let out = '';
+		let q: string | null = null;
+		for (let i = 0; i < sql.length; i++) {
+			const ch = sql[i];
+			if (q) {
+				out += ch;
+				if (ch === q) q = null;
+				continue;
+			}
+			if (ch === "'" || ch === '"') {
+				q = ch;
+				out += ch;
+			} else if (ch === '@') {
+				const m = /^[a-zA-Z_][a-zA-Z0-9_]*/.exec(sql.slice(i + 1));
+				if (!m) {
+					out += ch;
+					continue;
+				}
+				const name = m[0];
+				let idx = map.get(name);
+				if (idx === undefined) {
+					idx = map.size + 1;
+					map.set(name, idx);
+				}
+				out += `$${idx}`;
+				i += name.length;
+			} else {
+				out += ch;
+			}
+		}
+		const values = [...map.keys()].map((k) => vals[k]);
+		for (const k of map.keys()) {
+			if (!(k in vals)) throw new Error(`missing named parameter @${k}`);
+		}
+		return { text: out, values };
+	}
+
+	function runResult(text: string, values: unknown[]): Promise<RunResult> {
+		// emulate sqlite's run() result: lastInsertRowid via RETURNING id on INSERTs
+		const isInsert = /^\s*insert\b/i.test(text);
+		const hasReturning = /returning/i.test(text);
+		const q = isInsert && !hasReturning ? `${text} RETURNING id` : text;
+		return (async () => {
+			const res = await (await conn()).query(q, values);
+			let lastInsertRowid: number | null = null;
+			if (isInsert && Array.isArray(res.rows) && res.rows.length > 0) {
+				const id = res.rows[0]?.id;
+				lastInsertRowid = id === null || id === undefined ? null : Number(id);
+			}
+			return { changes: res.rowCount ?? 0, lastInsertRowid };
+		})();
+	}
+
+	return {
+		get: async (sql, params) => {
+			const { text, values } = translate(sql, params);
+			const res = await (await conn()).query(text, values);
+			return (res.rows[0] ?? undefined) as DbRow | undefined;
+		},
+		all: async (sql, params) => {
+			const { text, values } = translate(sql, params);
+			const res = await (await conn()).query(text, values);
+			return res.rows as DbRow[];
+		},
+		run: (sql, params) => {
+			const { text, values } = translate(sql, params);
+			return runResult(text, values);
+		},
+		exec: async (sql) => {
+			const t = sql.trim().toLowerCase();
+			if (t === 'begin' || t === 'start transaction' || t.startsWith('begin ')) {
+				if (!tx) {
+					tx = await pool.connect();
+					await tx.query('BEGIN');
+				}
+				return;
+			}
+			if (t === 'commit' || t === 'rollback' || t === 'end') {
+				if (tx) {
+					await tx.query(t === 'rollback' ? 'ROLLBACK' : 'COMMIT');
+					tx.release();
+					tx = null;
+				}
+				return;
+			}
+			await (await conn()).query(sql);
+		},
+		close: async () => {
+			if (tx) {
+				await tx.query('ROLLBACK');
+				tx.release();
+				tx = null;
+			}
+			await pool.end();
+		}
+	};
+}
+
+/* ---------------------------------------------------------------- public */
+
+let backend: Backend | null = null;
+let migrateP: Promise<void> | null = null;
+
+async function migratePg(): Promise<void> {
+	if (backend === null) backend = pgBackend(PG!);
+	await backend.exec(`
+		CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at BIGINT NOT NULL)
+	`);
+	const row = await backend.get('SELECT MAX(version) AS v FROM schema_migrations', []);
+	let version = row?.v ? Number(row.v) : 0;
+	for (let i = version; i < MIGRATIONS_PG.length; i++) {
+		await backend.exec('BEGIN');
+		try {
+			await backend.exec(MIGRATIONS_PG[i]);
+			await backend.run('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)', [i + 1, Math.floor(Date.now() / 1000)]);
+			await backend.exec('COMMIT');
+		} catch (err) {
+			await backend.exec('ROLLBACK');
+			throw err;
+		}
+		version = i + 1;
+	}
+}
+
+async function ensureReady(): Promise<void> {
+	if (!migrateP) {
+		if (PG) {
+			migrateP = migratePg();
+		} else {
+			backend = sqliteBackend(DB_PATH); // migrations run inside the constructor
+			migrateP = Promise.resolve();
+		}
+	}
+	await migrateP;
+}
+
+export async function dbGet<T = DbRow>(sql: string, params?: unknown[] | Record<string, unknown>): Promise<T | undefined> {
+	await ensureReady();
+	return (await backend!.get(sql, params ?? [])) as T | undefined;
+}
+
+export async function dbAll<T = DbRow>(sql: string, params?: unknown[] | Record<string, unknown>): Promise<T[]> {
+	await ensureReady();
+	return (await backend!.all(sql, params ?? [])) as T[];
+}
+
+export async function dbRun(sql: string, params?: unknown[] | Record<string, unknown>): Promise<RunResult> {
+	await ensureReady();
+	return backend!.run(sql, params ?? []);
+}
+
+export async function dbExec(sql: string): Promise<void> {
+	await ensureReady();
+	await backend!.exec(sql);
+}
+
+/** Close the underlying connection (tests/teardown). */
+export async function closeDb(): Promise<void> {
+	await ensureReady();
+	if (backend) {
+		await backend.close();
+		backend = null;
+		migrateP = null;
 	}
 }

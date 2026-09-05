@@ -12,7 +12,7 @@ export const PUT: RequestHandler = async ({ request }) => {
 		const kind = String(body?.kind ?? '') as Session['kind'];
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(planDate)) throw new Error('valid plan_date required');
 		if (!ALLOWED.includes(kind)) throw new Error('kind must be easy, quality, interval or long');
-		if (!swapSessionKind(planDate, kind)) throw new Error('no swappable session on that date (rest/race days are fixed)');
+		if (!(await swapSessionKind(planDate, kind))) throw new Error('no swappable session on that date (rest/race days are fixed)');
 		return json({ ok: true });
 	} catch (err) {
 		throw error(400, err instanceof Error ? err.message : 'invalid swap');

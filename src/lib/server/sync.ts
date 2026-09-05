@@ -1,14 +1,24 @@
-import { getDb } from './db';
+import { dbAll, dbGet, dbRun, dbExec } from './db';
 import { apiGet } from './strava';
 
 /**
  * Backfill + incremental import of activities.
  * See knowledge/strava_api/strava_api_research.md — paging by `before`
  * (epoch of the oldest row fetched so far), grouped by start_date_local.
+ *
+ * After the summary import, full-payload capture fills the own-data tables
+ * (v6): per-activity DetailedActivity JSON + GPS streams, plus the athlete
+ * profile + stats — capped per run to respect Strava's non-upload budget.
  */
 
 const PER_PAGE = 100;
 const MAX_PAGES = 60;
+const STREAM_KEYS = [
+	'time', 'distance', 'latlng', 'altitude', 'velocity_smooth',
+	'heartrate', 'cadence', 'temp', 'watts', 'moving', 'grade_smooth'
+];
+/** max activities enriched per sync run (detail + streams = 2 calls each) */
+const ENRICH_MAX = 40;
 
 interface SummaryActivity {
 	id: number;
@@ -35,34 +45,32 @@ interface SummaryActivity {
 	pr_count?: number;
 }
 
-function upsert(a: SummaryActivity, nowSec: number): void {
-	getDb()
-		.prepare(
-			`INSERT INTO activities (
-				strava_id, name, type, sport_type, start_date, start_date_local,
-				timezone, distance, moving_time, elapsed_time, total_elevation_gain,
-				average_speed, max_speed, has_heartrate, average_heartrate,
-				max_heartrate, calories, trainer, commute, manual, workout_type,
-				pr_count, synced_at
-			) VALUES (
-				@strava_id, @name, @type, @sport_type, @start_date, @start_date_local,
-				@timezone, @distance, @moving_time, @elapsed_time, @total_elevation_gain,
-				@average_speed, @max_speed, @has_heartrate, @average_heartrate,
-				@max_heartrate, @calories, @trainer, @commute, @manual, @workout_type,
-				@pr_count, @synced_at
-			)
-			ON CONFLICT(strava_id) DO UPDATE SET
-				name=@name, type=@type, sport_type=@sport_type,
-				start_date=@start_date, start_date_local=@start_date_local,
-				timezone=@timezone, distance=@distance, moving_time=@moving_time,
-				elapsed_time=@elapsed_time, total_elevation_gain=@total_elevation_gain,
-				average_speed=@average_speed, max_speed=@max_speed,
-				has_heartrate=@has_heartrate, average_heartrate=@average_heartrate,
-				max_heartrate=@max_heartrate, calories=@calories, trainer=@trainer,
-				commute=@commute, manual=@manual, workout_type=@workout_type,
-				pr_count=@pr_count, synced_at=@synced_at`
+async function upsert(a: SummaryActivity, nowSec: number): Promise<void> {
+	await dbRun(
+		`INSERT INTO activities (
+			strava_id, name, type, sport_type, start_date, start_date_local,
+			timezone, distance, moving_time, elapsed_time, total_elevation_gain,
+			average_speed, max_speed, has_heartrate, average_heartrate,
+			max_heartrate, calories, trainer, commute, manual, workout_type,
+			pr_count, synced_at
+		) VALUES (
+			@strava_id, @name, @type, @sport_type, @start_date, @start_date_local,
+			@timezone, @distance, @moving_time, @elapsed_time, @total_elevation_gain,
+			@average_speed, @max_speed, @has_heartrate, @average_heartrate,
+			@max_heartrate, @calories, @trainer, @commute, @manual, @workout_type,
+			@pr_count, @synced_at
 		)
-		.run({
+		ON CONFLICT(strava_id) DO UPDATE SET
+			name=@name, type=@type, sport_type=@sport_type,
+			start_date=@start_date, start_date_local=@start_date_local,
+			timezone=@timezone, distance=@distance, moving_time=@moving_time,
+			elapsed_time=@elapsed_time, total_elevation_gain=@total_elevation_gain,
+			average_speed=@average_speed, max_speed=@max_speed,
+			has_heartrate=@has_heartrate, average_heartrate=@average_heartrate,
+			max_heartrate=@max_heartrate, calories=@calories, trainer=@trainer,
+			commute=@commute, manual=@manual, workout_type=@workout_type,
+			pr_count=@pr_count, synced_at=@synced_at`,
+		{
 			strava_id: a.id,
 			name: a.name ?? '',
 			type: a.type ?? null,
@@ -86,7 +94,8 @@ function upsert(a: SummaryActivity, nowSec: number): void {
 			workout_type: a.workout_type ?? null,
 			pr_count: a.pr_count ?? 0,
 			synced_at: nowSec
-		});
+		}
+	);
 }
 
 export interface SyncResult {
@@ -94,12 +103,77 @@ export interface SyncResult {
 	pages: number;
 	oldestDate: string | null;
 	rateUsage: string | null;
+	enriched: number;
 }
 
-/** Pull activities back to `cutoffEpochSec` (default: 180 days). */
 /** Epoch seconds for the start of the current year (server-local time). */
 export function yearStartEpochSec(now = new Date()): number {
 	return new Date(now.getFullYear(), 0, 1).getTime() / 1000;
+}
+
+/* -------- full-payload capture (v6 tables) -------- */
+
+function jsonCol(payload: unknown): string {
+	return JSON.stringify(payload ?? null);
+}
+
+/** Which activities still need their detail + streams captured? */
+async function pendingEnrich(nowSec: number, limit: number): Promise<number[]> {
+	const rows = await dbAll<{ strava_id: number; synced_at: number }>(
+		`SELECT a.strava_id, a.synced_at
+		 FROM activities a
+		 LEFT JOIN activity_detail d ON d.strava_id = a.strava_id
+		 LEFT JOIN activity_streams s ON s.strava_id = a.strava_id
+		 WHERE d.strava_id IS NULL OR d.fetched_at < a.synced_at
+		    OR s.strava_id IS NULL OR s.fetched_at < a.synced_at
+		 ORDER BY a.start_date_local DESC
+		 LIMIT ?`,
+		[limit]
+	);
+	return rows.map((r) => r.strava_id);
+}
+
+async function captureDetail(id: number, nowSec: number): Promise<void> {
+	const { data } = await apiGet<Record<string, unknown>>(`/activities/${id}`);
+	await dbRun(
+		`INSERT INTO activity_detail (strava_id, payload, fetched_at) VALUES (?, ?, ?)
+		 ON CONFLICT(strava_id) DO UPDATE SET payload=excluded.payload, fetched_at=excluded.fetched_at`,
+		[id, jsonCol(data), nowSec]
+	);
+}
+
+async function captureStreams(id: number, nowSec: number): Promise<void> {
+	const { data } = await apiGet<Record<string, unknown>>(
+		`/activities/${id}/streams?keys=${STREAM_KEYS.join(',')}&key_by_type=true`
+	);
+	await dbRun(
+		`INSERT INTO activity_streams (strava_id, streams, fetched_at) VALUES (?, ?, ?)
+		 ON CONFLICT(strava_id) DO UPDATE SET streams=excluded.streams, fetched_at=excluded.fetched_at`,
+		[id, jsonCol(data), nowSec]
+	);
+}
+
+async function captureAthlete(nowSec: number): Promise<void> {
+	try {
+		const { data: profile } = await apiGet<Record<string, unknown>>('/athlete');
+		const athleteId = typeof profile?.id === 'number' ? profile.id : null;
+		let stats: Record<string, unknown> | null = null;
+		if (athleteId !== null) {
+			try {
+				const r = await apiGet<Record<string, unknown>>(`/athletes/${athleteId}/stats`);
+				stats = r.data ?? null;
+			} catch {
+				stats = null;
+			}
+		}
+		await dbRun(
+			`INSERT INTO athlete_snapshot (id, payload, fetched_at) VALUES (1, ?, ?)
+			 ON CONFLICT(id) DO UPDATE SET payload=excluded.payload, fetched_at=excluded.fetched_at`,
+			[jsonCol({ profile, stats }), nowSec]
+		);
+	} catch {
+		// profile fetch can fail (scope) — never fail the whole sync on it
+	}
 }
 
 export async function syncActivities(cutoffEpochSec?: number): Promise<SyncResult> {
@@ -107,7 +181,6 @@ export async function syncActivities(cutoffEpochSec?: number): Promise<SyncResul
 	// Default window: everything since Jan 1 of this year (user directive),
 	// not just the trailing 180 days.
 	const cutoff = cutoffEpochSec ?? yearStartEpochSec();
-	const db = getDb();
 	let imported = 0;
 	let pages = 0;
 	let oldestDate: string | null = null;
@@ -123,17 +196,17 @@ export async function syncActivities(cutoffEpochSec?: number): Promise<SyncResul
 		pages += 1;
 		if (data.length === 0) break;
 
-		const beforeCount = db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number };
-		db.exec('BEGIN');
+		const beforeCount = ((await dbGet<{ n: number }>('SELECT COUNT(*) AS n FROM activities'))?.n ?? 0) as number;
+		await dbExec('BEGIN');
 		try {
-			for (const a of data) upsert(a, nowSec);
-			db.exec('COMMIT');
+			for (const a of data) await upsert(a, nowSec);
+			await dbExec('COMMIT');
 		} catch (err) {
-			db.exec('ROLLBACK');
+			await dbExec('ROLLBACK');
 			throw err;
 		}
-		const afterCount = db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number };
-		imported += Math.max(0, afterCount.n - beforeCount.n);
+		const afterCount = ((await dbGet<{ n: number }>('SELECT COUNT(*) AS n FROM activities'))?.n ?? 0) as number;
+		imported += Math.max(0, afterCount - beforeCount);
 
 		// oldest activity of this page (grouping by start_date_local)
 		let oldest = data[data.length - 1];
@@ -147,5 +220,22 @@ export async function syncActivities(cutoffEpochSec?: number): Promise<SyncResul
 		if (before <= cutoff) break; // reached the window we care about
 		await new Promise((r) => setTimeout(r, 400)); // polite pacing
 	}
-	return { imported, pages, oldestDate, rateUsage: usage };
+
+	// ---- full-payload capture (incremental) ----
+	let enriched = 0;
+	const toEnrich = await pendingEnrich(nowSec, ENRICH_MAX);
+	await captureAthlete(nowSec).catch(() => undefined);
+	for (const id of toEnrich) {
+		try {
+			await captureDetail(id, nowSec);
+			await new Promise((r) => setTimeout(r, 300));
+			await captureStreams(id, nowSec);
+			await new Promise((r) => setTimeout(r, 300));
+			enriched += 1;
+		} catch {
+			// individual capture failures are non-fatal; retried next sync
+		}
+	}
+
+	return { imported, pages, oldestDate, rateUsage: usage, enriched };
 }
