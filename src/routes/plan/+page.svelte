@@ -25,8 +25,11 @@
 	const activeEvent = $derived(data.events.find((e: { event_date: string }) => e.event_date >= new Date().toISOString().slice(0, 10)));
 
 	/* ---- wizard state (always asked on build/renew) ---- */
+	// svelte-ignore state_referenced_locally — intentional: seed wizard state once from SSR data
 	const hadPlan = data.days.length > 0;
+	// svelte-ignore state_referenced_locally
 	const initRun = data.prefs?.runDays?.length ? [...data.prefs.runDays] : [1, 2, 4, 5, 6];
+	// svelte-ignore state_referenced_locally
 	const initKinds: Record<number, string> = data.prefs?.kinds ? { ...data.prefs.kinds } : {};
 	let open = $state(!hadPlan);
 	const prefs = $state({
