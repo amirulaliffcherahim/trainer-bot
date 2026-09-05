@@ -444,9 +444,13 @@ function pgBackend(url: string): Backend {
 
 	function runResult(text: string, values: unknown[]): Promise<RunResult> {
 		// emulate sqlite's run() result: lastInsertRowid via RETURNING id on INSERTs
+		// into identity-keyed tables only (schema_migrations / strava_id-keyed
+		// v6 tables have no `id` column and must NOT get the append).
 		const isInsert = /^\s*insert\b/i.test(text);
 		const hasReturning = /returning/i.test(text);
-		const q = isInsert && !hasReturning ? `${text} RETURNING id` : text;
+		const tbl = /^\s*insert\s+into\s+([a-z_][a-z0-9_]*)/i.exec(text)?.[1]?.toLowerCase();
+		const identityTables = ['activities', 'vdot_snapshots', 'events', 'planned_sessions', 'feedback'];
+		const q = isInsert && !hasReturning && tbl && identityTables.includes(tbl) ? `${text} RETURNING id` : text;
 		return (async () => {
 			const res = await (await conn()).query(q, values);
 			let lastInsertRowid: number | null = null;
