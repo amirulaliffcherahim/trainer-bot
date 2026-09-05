@@ -3,6 +3,8 @@ import type { RequestHandler } from './$types';
 import { planView } from '$lib/server/plan_store';
 
 export const GET: RequestHandler = async ({ url }) => {
-	const days = Math.min(Math.max(parseInt(url.searchParams.get('days') ?? '14', 10) || 14, 7), 42);
+	const raw = url.searchParams.get('days');
+	// no days -> full horizon (current month, or race date when a race is set)
+	const days = raw ? Math.max(parseInt(raw, 10) || 7, 1) : null;
 	return json(planView(days, false));
 };

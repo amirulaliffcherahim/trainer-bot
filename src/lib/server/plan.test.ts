@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, generatePlan, isoWeek, volumeAnchorKm, type ActRow, type PlanEvent } from './plan';
+import { addDays, generatePlan, isoWeek, planHorizon, volumeAnchorKm, type ActRow, type PlanEvent } from './plan';
 
 // 2026-09-07 is a Monday (athlete's rest rule: Wed + Sun rest).
 const MON = '2026-09-07';
@@ -85,6 +85,51 @@ describe('base-mode plan (no event)', () => {
 			two.filter((x) => x.plan_week === wk && x.kind !== 'rest').reduce((a, x) => a + (x.distance_m ?? 0), 0)
 		);
 		expect(totals[1] / totals[0]).toBeLessThanOrEqual(1.1);
+	});
+});
+
+describe('planHorizon (month unless a race runs)', () => {
+	it('no event -> current calendar month end, race-off', () => {
+		expect(planHorizon('2026-02-01', [])).toEqual({ to: '2026-02-28', isRace: false, name: null, daysTo: 28 });
+	});
+
+	it('late in the month stays inside the month', () => {
+		expect(planHorizon('2026-09-30', [])).toEqual({ to: '2026-09-30', isRace: false, name: null, daysTo: 1 });
+	});
+
+	it('leap February is respected', () => {
+		expect(planHorizon('2028-02-15', []).to).toBe('2028-02-29');
+	});
+
+	it('an upcoming race extends the horizon past month end', () => {
+		const h = planHorizon('2026-09-30', [{ name: 'HM', distance_m: 21097.5, event_date: '2026-10-25', target_time_min: null }]);
+		expect(h).toMatchObject({ to: '2026-10-25', isRace: true, name: 'HM', daysTo: 26 });
+	});
+});
+
+describe('race-anchored build keeps step-back weeks', () => {
+	it('a ~5-week build dips to ~65% on the third week (volume_progression.md)', () => {
+		const ev: PlanEvent = { name: 'HM', distance_m: 21097.5, event_date: addDays(MON, 40), target_time_min: null };
+		const p = generatePlan(opts({ events: [ev], horizonDays: 35, anchorKm: 40 }));
+		const totals = [...new Set(p.map((x) => x.plan_week))]
+			.slice(0, 5)
+			.map((wk) => p.filter((x) => x.plan_week === wk && x.kind !== 'rest').reduce((a, x) => a + (x.distance_m ?? 0), 0));
+		expect(totals.length).toBe(5);
+		expect(totals[2] / totals[1]).toBeGreaterThan(0.6);
+		expect(totals[2] / totals[1]).toBeLessThan(0.7); // step-back week
+	});
+});
+
+describe('post-race weeks survive a Renew', () => {
+	it('the week right after a race is easy-only ~60%; later weeks resume progression', () => {
+		const racePast: PlanEvent = { name: '10K', distance_m: 10000, event_date: addDays(MON, -1), target_time_min: null };
+		const p = generatePlan(opts({ events: [racePast], horizonDays: 21, anchorKm: 40 }));
+		const week1 = p.filter((x) => x.plan_week === isoWeek(MON));
+		const runs1 = week1.filter((x) => x.kind !== 'rest');
+		expect(runs1.length).toBeGreaterThan(0);
+		expect(runs1.every((x) => x.kind === 'easy')).toBe(true); // recovery week
+		// a later week brings back quality work (base resumed, not all-post)
+		expect(p.some((x) => x.kind === 'quality')).toBe(true);
 	});
 });
 

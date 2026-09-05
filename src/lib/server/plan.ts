@@ -80,6 +80,41 @@ export function isoWeek(s: string): string {
 	return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
+/* ---------------- plan horizon ---------------- */
+
+/** days from a to b (b >= a), inclusive end */
+export function daysInclusive(a: string, b: string): number {
+	return Math.round((toDate(b).getTime() - toDate(a).getTime()) / 86400000) + 1;
+}
+
+export interface PlanHorizon {
+	/** last planned date (inclusive): race date, or end of the current month */
+	to: string;
+	/** whether the horizon is anchored to an upcoming race */
+	isRace: boolean;
+	/** race name when race-anchored */
+	name: string | null;
+	/** inclusive day count from today to `to` */
+	daysTo: number;
+}
+
+/**
+ * Horizon rule: an upcoming race runs the show (plan THROUGH race day);
+ * otherwise the plan only spans the current calendar month. Athlete-local
+ * dates throughout — month-end computed from the local date components.
+ */
+export function planHorizon(today: string, events: PlanEvent[]): PlanHorizon {
+	const upcoming = events.filter((e) => e.event_date >= today).sort((a, b) => a.event_date.localeCompare(b.event_date))[0];
+	if (upcoming) {
+		return { to: upcoming.event_date, isRace: true, name: upcoming.name || null, daysTo: daysInclusive(today, upcoming.event_date) };
+	}
+	const [y, m] = today.split('-').map(Number);
+	const last = new Date(y, m, 0).getDate(); // days in the current month (local)
+	const p = (x: number) => String(x).padStart(2, '0');
+	const to = `${y}-${p(m)}-${p(last)}`;
+	return { to, isRace: false, name: null, daysTo: daysInclusive(today, to) };
+}
+
 /* ---------------- volume anchor ---------------- */
 
 export function volumeAnchorKm(rows: ActRow[], today: string, windowDays = 28): number {
@@ -259,10 +294,15 @@ export function buildDaySpecs(prefs: PlanPrefs, phase: Phase, isExplicit: boolea
 }
 
 export function generatePlan(o: GenOpts): Session[] {
-	const horizon = o.horizonDays ?? 14;
+	const horizon = o.horizonDays ?? daysInclusive(o.today, planHorizon(o.today, o.events).to);
 	const today = o.today;
-	const events = o.events.filter((e) => e.event_date >= today).sort((a, b) => a.event_date.localeCompare(b.event_date));
-	const event: PlanEvent | null = events[0] ?? null;
+	/* Event that still shapes the plan: the next upcoming one, or — when it
+	 * just passed — the most recent race within the last 7 days (post-race
+	 * recovery weeks must survive a Renew). Anything older is ignored. */
+	const cutoff = addDays(today, -7);
+	const upcoming = o.events.filter((e) => e.event_date >= today).sort((a, b) => a.event_date.localeCompare(b.event_date));
+	const recentPast = o.events.filter((e) => e.event_date >= cutoff && e.event_date < today).sort((a, b) => b.event_date.localeCompare(a.event_date));
+	const event: PlanEvent | null = upcoming[0] ?? recentPast[0] ?? null;
 	const v = o.vdotVal;
 	const prefs = o.prefs ?? LEGACY_PREFS;
 	const isExplicit = o.prefs !== undefined;
@@ -281,6 +321,16 @@ export function generatePlan(o: GenOpts): Session[] {
 		}
 	}
 
+	/** step-back weeks follow calendar cadence (every 3rd week from today),
+	 *  so a mid-month Renew keeps the same rhythm instead of restarting. */
+	const isStepBack = (first: string) => {
+		const d = Math.floor((toDate(first).getTime() - toDate(today).getTime()) / 86400000);
+		return Math.floor(d / 7) % 3 === 2;
+	};
+	const grow = (prev: number) => Math.min(prev * 1.1, prev + 4);
+	const STEP = (prev: number) => Math.max(prev * 0.65, 8);
+	const POST = (prev: number) => Math.max(prev * 0.6, 8);
+
 	const metaByWeek = new Map<string, WeekMeta>();
 	let prevTarget = o.anchorKm;
 	for (let i = 0; i < weekOrder.length; i++) {
@@ -291,13 +341,20 @@ export function generatePlan(o: GenOpts): Session[] {
 
 		if (event) {
 			const eventMs = toDate(event.event_date).getTime();
-			const daysTo = Math.ceil((eventMs - dayMs) / 86400000);
+			const daysTo = Math.floor((eventMs - dayMs) / 86400000); // < 0 when the race already passed
 			if (daysTo < 0) {
-				phase = 'post';
-				target = Math.max(prevTarget * 0.6, 8);
+				const daysAfter = Math.ceil((dayMs - eventMs) / 86400000);
+				if (daysAfter <= 7) {
+					phase = 'post'; // recovery week (KB: post-race ~60% volume, easy only)
+					target = POST(prevTarget);
+				} else {
+					// >1 week after the race: resume normal progression from the reduced base
+					phase = 'base';
+					target = isStepBack(first) ? STEP(prevTarget) : grow(prevTarget);
+				}
 			} else if (daysTo <= 6) {
 				phase = 'race';
-				target = Math.max(prevTarget * 0.35, 8);
+				target = Math.max(prevTarget * 0.35, 8); // race week 35%, floor 8
 			} else if (daysTo <= 13) {
 				phase = 'taper-2';
 				target = prevTarget * 0.55;
@@ -305,14 +362,20 @@ export function generatePlan(o: GenOpts): Session[] {
 				phase = 'taper-3';
 				target = prevTarget * 0.75;
 			} else {
-				phase = 'build';
-				target = prevTarget * 1.1;
+				// race build — step-backs still apply (volume_progression.md)
+				if (isStepBack(first)) {
+					phase = 'base';
+					target = STEP(prevTarget);
+				} else {
+					phase = 'build';
+					target = grow(prevTarget);
+				}
 			}
-		} else if (weekOrder.length >= 3 && i % 3 === 2) {
+		} else if (weekOrder.length >= 3 && isStepBack(first)) {
 			phase = 'base'; // step-back week
-			target = Math.max(prevTarget * 0.65, 8);
+			target = STEP(prevTarget);
 		} else {
-			target = Math.min(prevTarget * 1.1, prevTarget + 4);
+			target = grow(prevTarget);
 		}
 		target = Math.round(target * 10) / 10;
 

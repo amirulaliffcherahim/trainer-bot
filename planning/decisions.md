@@ -51,3 +51,16 @@ idea lands here it's still a candidate in brainstorm.md.
 - Why: "did I actually do the training" is the ground truth the coach needs
   before it adjusts anything — feedback and adjustment hang off the matcher
   result, not off assumptions.
+
+## 2026-09 — Plan horizon: current month, or the race when one is set
+- With no goal event: the plan spans only the **current calendar month**
+  (today → month end). With an upcoming race: the plan runs **through race
+  day**, phasing build → taper → race (step-back weeks every 3rd week still
+  apply inside race builds), then ~7 days of easy post-race recovery before
+  normal progression resumes.
+- Why: monthly windows stay reviewable and adapt to real volume each
+  month; a race overrides the window so training never ignores the goal.
+- Sessions stay effort-based (no per-session paces — earlier decision);
+  "based on the race target" = horizon/phasing to the race + the race-day
+  session carries the goal (predicted from VDOT when no target set).
+- Grounding: advisor review 2026-09; `knowledge/runner/volume_progression.md`.

@@ -64,7 +64,7 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ plan_date: planDate, kind })
 			});
-			if (res.ok) data = await (await fetch('/api/plan?days=14')).json();
+	if (res.ok) data = await (await fetch('/api/plan')).json();
 		} finally {
 			busy = false;
 		}
@@ -95,7 +95,7 @@
 			const body = await res.json();
 			if (!res.ok) throw new Error(body.message ?? 'could not add race');
 			evName = evDate = evKm = evCat = evTarget = '';
-			data = await (await fetch('/api/plan?days=14')).json();
+			data = await (await fetch('/api/plan')).json();
 		} catch (err) {
 			evErr = err instanceof Error ? err.message : 'could not add race';
 		}
@@ -136,7 +136,7 @@
 
 	async function removeEvent(id: number) {
 		await fetch(`/api/events?id=${id}`, { method: 'DELETE' });
-		data = await (await fetch('/api/plan?days=14')).json();
+		data = await (await fetch('/api/plan')).json();
 	}
 </script>
 
@@ -224,7 +224,13 @@
 {#if data.days.length > 0}
 	<div class="card">
 		<div class="calhead">
-			<p class="subtle" style="margin:0"><strong style="color:var(--ink)">Your plan</strong> · next {data.days.length} days</p>
+			<p class="subtle" style="margin:0"><strong style="color:var(--ink)">Your plan</strong>
+				{#if data.horizon?.isRace}
+					· race build · {data.horizon.name ?? 'goal race'} · {data.horizon.daysTo} days to go
+				{:else}
+					· this month · until {pretty(data.horizon?.to)}
+				{/if}
+			</p>
 			<p class="subtle" style="margin:0">anchor {data.anchorKm} km/wk{activeEvent ? '' : ' · grow ≤10%/wk'}</p>
 		</div>
 		{#each data.days as day (day.date)}

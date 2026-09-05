@@ -1,6 +1,6 @@
 import { getDb } from './db';
 import type { ActRow, PlanEvent, PlanPrefs, Session } from './plan';
-import { generatePlan, volumeAnchorKm, addDays, EFFORT } from './plan';
+import { generatePlan, volumeAnchorKm, addDays, planHorizon, EFFORT } from './plan';
 import { latestSnapshot } from './fitness';
 import { matchPlan, type ActBrief } from './match';
 import { adjust, type AdjustCtx, type JournalState } from './s3';
@@ -102,10 +102,11 @@ export function replacePlanWindow(sessions: Session[]): void {
 	const db = getDb();
 	if (sessions.length === 0) return;
 	const from = sessions.reduce((a, b) => (a.plan_date < b.plan_date ? a : b)).plan_date;
-	const to = sessions.reduce((a, b) => (a.plan_date > b.plan_date ? a : b)).plan_date;
+	// delete EVERYTHING from `from` onward — a shrunken horizon (race removed,
+	// month rolled) must not leave stale rows that a future regen could re-read.
 	db.exec('BEGIN');
 	try {
-		db.prepare('DELETE FROM planned_sessions WHERE plan_date >= ? AND plan_date <= ?').run(from, to);
+		db.prepare('DELETE FROM planned_sessions WHERE plan_date >= ?').run(from);
 		const ins = db.prepare(
 			`INSERT INTO planned_sessions
 			 (plan_date, kind, label, distance_m, duration_min, pace_min_s_km, pace_max_s_km, plan_week, reason, created_at)
@@ -135,7 +136,7 @@ function activitiesInWindow(fromDate: string, toDate: string): ActBrief[] {
 
 /** Plan view: existing sessions + events + matches. Generation is explicit
  *  (POST /api/plan/generate) so the UI can ask preferences first. */
-export function planView(horizonDays: number, regenerate: boolean): {
+export function planView(limitDays: number | null, regenerate: boolean): {
 	days: ReturnType<typeof matchPlan>;
 	events: PlanEvent[];
 	anchorKm: number;
@@ -143,15 +144,17 @@ export function planView(horizonDays: number, regenerate: boolean): {
 	generated: boolean;
 	prefs: PlanPrefs | null;
 	coachNote: string[];
+	horizon: { from: string; to: string; shownTo: string; isRace: boolean; name: string | null; daysTo: number };
 } {
 	const today = todayLocal();
-	const end = new Date();
-	end.setDate(end.getDate() + horizonDays - 1);
-	const p = (x: number) => String(x).padStart(2, '0');
-	const toDate = `${end.getFullYear()}-${p(end.getMonth() + 1)}-${p(end.getDate())}`;
-
 	const events = listEvents();
-	const active = events.filter((e) => e.event_date >= today).sort((a, b) => a.event_date.localeCompare(b.event_date))[0] ?? null;
+	const horizon = planHorizon(today, events);
+	// `limitDays` only narrows what is FETCHED/RENDERED (e.g. Home requests 7);
+	// generation always spans the full horizon (month end or race date).
+	const limitTo = limitDays ? addDays(today, Math.max(limitDays, 1) - 1) : null;
+	const shownTo = limitTo && limitTo < horizon.to ? limitTo : horizon.to;
+	const horizonDays = horizon.daysTo;
+
 	const snapshot = latestSnapshot();
 	const vdotVal = snapshot?.vdot ?? null;
 
@@ -166,16 +169,19 @@ export function planView(horizonDays: number, regenerate: boolean): {
 	const anchorKm = volumeAnchorKm(actsAll, today);
 
 	const prefs = loadPrefs();
-	let sessions = fetchSessions(today, toDate);
+	let sessions = fetchSessions(today, horizon.to);
+	const shown = sessions.filter((s) => s.plan_date <= shownTo);
 	const ctx = buildAdjustCtx(today);
 	let coachNote: string[] = [];
-	if (regenerate || (sessions.length === 0 && prefs)) {
+	const lastStored = sessions.length > 0 ? sessions[sessions.length - 1].plan_date : null;
+	const covered = prefs !== null && lastStored !== null && lastStored >= horizon.to;
+	if (regenerate || (!covered && prefs)) {
 		sessions = generatePlan({
 			today,
 			horizonDays,
 			vdotVal,
 			anchorKm,
-			events: active ? [active] : [],
+			events,
 			prefs: prefs ?? undefined
 		});
 		// S3: adjust today/tomorrow from journal + feedback + matcher
@@ -183,19 +189,29 @@ export function planView(horizonDays: number, regenerate: boolean): {
 		adj.sessions.forEach((s, i) => (sessions[i] = s));
 		coachNote = adj.notes;
 		replacePlanWindow(sessions);
-	} else if (sessions.length > 0) {
-		const adj = adjust(sessions, ctx); // advisory only, plan stays stored as built
-		coachNote = adj.notes;
+		return {
+			days: matchPlan(sessions.filter((s) => s.plan_date <= shownTo), activitiesInWindow(today, shownTo), today),
+			events,
+			anchorKm,
+			hasVdot: vdotVal !== null,
+			generated: true,
+			prefs,
+			coachNote,
+			horizon: { from: today, to: horizon.to, shownTo, isRace: horizon.isRace, name: horizon.name, daysTo: horizon.daysTo }
+		};
 	}
-	const acts = activitiesInWindow(today, toDate);
+	const adj = adjust(shown, ctx); // advisory only, plan stays stored as built
+	coachNote = adj.notes;
+	const acts = activitiesInWindow(today, shownTo);
 	return {
-		days: matchPlan(sessions, acts, today),
+		days: matchPlan(shown, acts, today),
 		events,
 		anchorKm,
 		hasVdot: vdotVal !== null,
 		generated: sessions.length > 0,
 		prefs,
-		coachNote
+		coachNote,
+		horizon: { from: today, to: horizon.to, shownTo, isRace: horizon.isRace, name: horizon.name, daysTo: horizon.daysTo }
 	};
 }
 
