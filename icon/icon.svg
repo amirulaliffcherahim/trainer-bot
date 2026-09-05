@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Canvas -->
+    <linearGradient id="canvasGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#F1F5F9" />
+    </linearGradient>
+
+    <!-- Runna Energetic Violet Gradient -->
+    <linearGradient id="runnaViolet" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4F46E5" />
+      <stop offset="50%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#8B5CF6" />
+    </linearGradient>
+
+    <!-- Drop Shadow for Geometric Depth -->
+    <filter id="crispShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0F172A" flood-opacity="0.14" />
+    </filter>
+  </defs>
+
+  <!-- Base Icon Squircle (Mobile OS Mask Friendly) -->
+  <rect width="512" height="512" rx="115" fill="url(#canvasGrad)" />
+
+  <!-- App Mark Group -->
+  <g filter="url(#crispShadow)">
+    <!-- Primary Vector Track: Forward V-Curve -->
+    <path 
+      d="M 148 356 
+         C 148 356, 204 356, 248 312 
+         L 326 234 
+         C 342 218, 342 192, 326 176 
+         C 310 160, 284 160, 268 176 
+         L 204 240 
+         C 184 260, 164 270, 140 270 
+         C 126 270, 116 276, 116 290 
+         L 116 324 
+         C 116 342, 130 356, 148 356 Z" 
+      fill="url(#runnaViolet)" 
+    />
+
+    <!-- Kinetic Pulse Slice (Strava Sunrise Orange Accent) -->
+    <path 
+      d="M 292 152 
+         L 374 234 
+         C 388 248, 388 270, 374 284 
+         C 360 298, 338 298, 324 284 
+         L 262 222 
+         Z" 
+      fill="#FC5200" 
+    />
+
+    <!-- Precision Data Dot (VDOT Target Marker) -->
+    <circle cx="218" cy="188" r="22" fill="#0EA5E9" />
+  </g>
+</svg>
